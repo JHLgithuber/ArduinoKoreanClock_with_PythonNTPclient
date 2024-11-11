@@ -10,14 +10,38 @@ RTC_DS3231 rtc;
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 
-#define MAX_CUSTOM_PRESETS 60
-#define MAX_TIME_PRESETS 60
+#define MAX_CUSTOM_PRESETS 50
+#define MAX_TIME_PRESETS 30
 
 
 int showingMinute = 0;
 int showingHour = 0;
 bool hourlyNotificationSet = true;  //정시알림, 수정필요
 int blinkTime = 500;
+
+struct RGBstruct {
+  uint8_t r, g, b;
+};
+
+struct ColorPresetStruct {
+  uint8_t priority;           // 우선순위
+  uint8_t ledID_bitmask;      // 비트마스크, 색상을 적용할 위치, 오전,오후,자정,정오,시_시각,시_접미사,분_시각,분_접미사
+  uint8_t startIndexTime;     // 1일을 10분 단위로 쪼갬
+  uint8_t endIndexTime;       // 1일을 10분 단위로 쪼갬
+  uint8_t dayOfWeek_bitmask;  // 비트마스크, 적용할 요일
+  RGBstruct ledColor;
+};
+
+int freeMemory() {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
+}
+
+void print_freeMemory() {
+  Serial.print("Free memory before adding preset: ");
+  Serial.println(freeMemory());
+}
 
 uint8_t get_IndexTime(DateTime dt) {
   // 총 몇 번째 10분 단위인지 계산
@@ -26,34 +50,39 @@ uint8_t get_IndexTime(DateTime dt) {
 }
 
 
-class ColorPreset {
-private:
-  struct RGBstruct {
-    uint8_t r, g, b;
-  };
 
+
+class ColorPreset {
 protected:
-  struct ColorPresetStruct {
-    uint8_t priority;           // 우선순위
-    uint8_t ledID_bitmask;      // 비트마스크, 색상을 적용할 위치, 오전,오후,자정,정오,시_시각,시_접미사,분_시각,분_접미사
-    uint8_t startIndexTime;     // 1일을 10분 단위로 쪼갬
-    uint8_t endIndexTime;       // 1일을 10분 단위로 쪼갬
-    uint8_t dayOfWeek_bitmask;  // 비트마스크, 적용할 요일
-    RGBstruct ledColor;
-  };
+  void makeColorPresetArr(int size) {
+    maxSize = size;
+    colorPresetArr = new ColorPresetStruct[maxSize];  // 동적 배열 할당
+  }
+  void purgeColorPresetArr() {
+    delete[] colorPresetArr;  // 메모리 해제
+  }
 
   int colorPresetSize = 0;
-  ColorPresetStruct ColorPresetArr[10];  // 배열 크기 설정
+  int maxSize = 0;
 
 public:
+  ColorPresetStruct* colorPresetArr;  // 동적 배열 포인터
+
+  int get_colorPresetSize() const {
+    return colorPresetSize;
+  }
+  int get_maxSize() const {
+    return maxSize;
+  }
+
   void sortPresetArr() {
     for (int i = 0; i < colorPresetSize - 1; i++) {
       for (int j = 0; j < colorPresetSize - i - 1; j++) {
-        if (ColorPresetArr[j].priority > ColorPresetArr[j + 1].priority) {
+        if (colorPresetArr[j].priority > colorPresetArr[j + 1].priority) {
           // 두 요소를 교환
-          ColorPresetStruct temp = ColorPresetArr[j];
-          ColorPresetArr[j] = ColorPresetArr[j + 1];
-          ColorPresetArr[j + 1] = temp;
+          ColorPresetStruct temp = colorPresetArr[j];
+          colorPresetArr[j] = colorPresetArr[j + 1];
+          colorPresetArr[j + 1] = temp;
         }
       }
     }
@@ -121,71 +150,23 @@ public:
 
     return dayOfWeek_arr;
   }
-};
 
-class ColorCustomPreset : public ColorPreset {
-public:
-  void resetColorCustomPresetArr() {
-    // 초기화: 모든 요소를 기본값으로 설정
-    colorCustomPresetSize = 0;
 
-    // "새벽" 프리셋 - LED ID 마스크 적용 (부드러운 주황색)
-    colorCustomPresetArr[colorCustomPresetSize++] = {
-      1,
-      0b10000001,      // 오전, 시_시각 활성화
-      6,               // startIndexTime: 01:00
-      18,              // endIndexTime: 03:00
-      0b1111111,       // 일요일부터 토요일까지
-      { 255, 140, 0 }  // 부드러운 주황색
-    };
-
-    // "아침" 프리셋 - LED ID 마스크 적용 (밝은 노란색)
-    colorCustomPresetArr[colorCustomPresetSize++] = {
-      2,
-      0b11111100,      // 오전, 시_시각, 시_접미사 활성화
-      42,              // startIndexTime: 07:00
-      60,              // endIndexTime: 10:00
-      0b0011111,       // 월요일부터 금요일까지
-      { 255, 223, 0 }  // 밝은 노란색
-    };
-
-    // "대낮" 프리셋 - LED ID 마스크 적용 (밝은 흰색, 최대 밝기)
-    colorCustomPresetArr[colorCustomPresetSize++] = {
-      3,
-      0b11111111,        // 모든 위치 활성화
-      60,                // startIndexTime: 10:00
-      96,                // endIndexTime: 16:00
-      0b1111111,         // 일요일부터 토요일까지
-      { 255, 255, 255 }  // 최대 밝기의 흰색
-    };
-
-    // "저녁" 프리셋 - LED ID 마스크 적용 (따뜻한 핑크색)
-    colorCustomPresetArr[colorCustomPresetSize++] = {
-      4,
-      0b00001010,        // 오후, 정오 활성화
-      108,               // startIndexTime: 18:00
-      120,               // endIndexTime: 20:00
-      0b0111111,         // 월요일부터 금요일까지
-      { 255, 105, 180 }  // 따뜻한 핑크색
-    };
-
-    // "한밤" 프리셋 - LED ID 마스크 적용 (어두운 빨간색)
-    colorCustomPresetArr[colorCustomPresetSize++] = {
-      5,
-      0b11110000,   // 시_시각, 시_접미사, 자정, 한밤 활성화
-      126,          // startIndexTime: 21:00
-      6,            // endIndexTime: 03:00 (다음 날 새벽 3시)
-      0b0111111,    // 월요일부터 금요일까지
-      { 55, 0, 0 }  // 아주 어두운 빨간색
-    };
-  }
-  bool addColorPreset(String led_select_id_arr[], uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_arr[], RGBstruct ledColor) {
-    if (colorCustomPresetSize >= MAX_CUSTOM_PRESETS) {
-      // 배열이 가득 찼습니다.
-      return false;
+  // 실질적 구조체 배열 추가 함수 - 모든 비트마스크와 우선순위를 사용
+  bool addColorPreset(uint8_t priority, uint8_t ledID_bitmask, uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_bitmask, RGBstruct ledColor) {
+    if (colorPresetSize >= maxSize) {
+      Serial.println("메모리가 가득 찼습니다.");
+      return false;  // 배열이 가득 찼습니다.
     }
 
-    // led_select_id_arr[]를 비트마스크로 변환
+    // 새로운 항목 추가
+    colorPresetArr[colorPresetSize] = { priority, ledID_bitmask, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor };
+    colorPresetSize++;
+    delay(100);
+    return true;
+  }
+  // LED ID 배열을 받아 비트마스크로 변환 후 호출하는 함수
+  bool addColorPreset(uint8_t priority, String led_select_id_arr[], uint8_t startIndexTime, uint8_t endIndexTime, uint8_t dayOfWeek_bitmask, RGBstruct ledColor) {
     uint8_t ledID_bitmask = 0;
     for (int i = 0; led_select_id_arr[i] != ""; i++) {
       if (led_select_id_arr[i] == "오전") ledID_bitmask |= 0b00000001;
@@ -197,126 +178,171 @@ public:
       if (led_select_id_arr[i] == "분_시각") ledID_bitmask |= 0b01000000;
       if (led_select_id_arr[i] == "분_접미사") ledID_bitmask |= 0b10000000;
     }
-
-    // dayOfWeek_arr[]를 비트마스크로 변환
+    return addColorPreset(priority, ledID_bitmask, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor);
+  }
+  // dayOfWeek 배열을 받아 비트마스크로 변환 후 호출하는 함수
+  bool addColorPreset(uint8_t priority, String led_select_id_arr[], uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_arr[], RGBstruct ledColor) {
     uint8_t dayOfWeek_bitmask = 0;
     for (int i = 0; dayOfWeek_arr[i] != -1; i++) {
       if (dayOfWeek_arr[i] >= 0 && dayOfWeek_arr[i] <= 6) {
         dayOfWeek_bitmask |= (1 << dayOfWeek_arr[i]);
       }
     }
+    return addColorPreset(priority, led_select_id_arr, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor);
+  }
+  // LED ID 없이 dayOfWeek 배열을 비트마스크로 변환 후 호출하는 함수
+  bool addColorPreset(uint8_t priority, uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_arr[], RGBstruct ledColor) {
+    String default_led_select_id_arr[] = { "" };
+    return addColorPreset(priority, default_led_select_id_arr, startIndexTime, endIndexTime, dayOfWeek_arr, ledColor);
+  }
+  // LED ID 없이 dayOfWeek 비트마스크만 받아 호출하는 함수
+  bool addColorPreset(uint8_t priority, uint8_t startIndexTime, uint8_t endIndexTime, uint8_t dayOfWeek_bitmask, RGBstruct ledColor) {
+    return addColorPreset(priority, (uint8_t)0, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor);
+  }
+};
 
-    // 새로운 항목 추가
-    colorCustomPresetArr[colorCustomPresetSize].ledID_bitmask = ledID_bitmask;
-    colorCustomPresetArr[colorCustomPresetSize].startIndexTime = startIndexTime;
-    colorCustomPresetArr[colorCustomPresetSize].endIndexTime = endIndexTime;
-    colorCustomPresetArr[colorCustomPresetSize].dayOfWeek_bitmask = dayOfWeek_bitmask;
-    colorCustomPresetArr[colorCustomPresetSize].ledColor = ledColor;
+class ColorCustomPreset : public ColorPreset {
+public:
+  ColorCustomPreset(int maxSize) {
+    makeColorPresetArr(maxSize);  // 배열 크기 설정
+  }
+  ~ColorCustomPreset() {
+    purgeColorPresetArr();
+  }
 
-    colorCustomPresetSize++;
-    return true;
+  void reset_colorPresetArr() {
+    // 초기화: 모든 요소를 기본값으로 설정
+    colorPresetSize = 0;
+
+    // "새벽" 프리셋 - LED ID 마스크 적용 (부드러운 주황색)
+    addColorPreset(
+      1,
+      0b10000001,      // 오전, 시_시각 활성화
+      6,               // startIndexTime: 01:00
+      18,              // endIndexTime: 03:00
+      0b1111111,       // 일요일부터 토요일까지
+      { 255, 140, 0 }  // 부드러운 주황색
+    );
+
+    // "아침" 프리셋 - LED ID 마스크 적용 (밝은 노란색)
+    addColorPreset(
+      2,
+      0b11111100,      // 오전, 시_시각, 시_접미사 활성화
+      42,              // startIndexTime: 07:00
+      60,              // endIndexTime: 10:00
+      0b0011111,       // 월요일부터 금요일까지
+      { 255, 223, 0 }  // 밝은 노란색
+    );
+
+    // "대낮" 프리셋 - LED ID 마스크 적용 (밝은 흰색, 최대 밝기)
+    addColorPreset(
+      3,
+      0b11111111,        // 모든 위치 활성화
+      60,                // startIndexTime: 10:00
+      96,                // endIndexTime: 16:00
+      0b1111111,         // 일요일부터 토요일까지
+      { 255, 255, 255 }  // 최대 밝기의 흰색
+    );
+
+    // "저녁" 프리셋 - LED ID 마스크 적용 (따뜻한 핑크색)
+    addColorPreset(
+      4,
+      0b00001010,        // 오후, 정오 활성화
+      108,               // startIndexTime: 18:00
+      120,               // endIndexTime: 20:00
+      0b0111111,         // 월요일부터 금요일까지
+      { 255, 105, 180 }  // 따뜻한 핑크색
+    );
+
+    // "한밤" 프리셋 - LED ID 마스크 적용 (어두운 빨간색)
+    addColorPreset(
+      5,
+      0b11110000,   // 시_시각, 시_접미사, 자정, 한밤 활성화
+      126,          // startIndexTime: 21:00
+      6,            // endIndexTime: 03:00 (다음 날 새벽 3시)
+      0b0111111,    // 월요일부터 금요일까지
+      { 55, 0, 0 }  // 아주 어두운 빨간색
+    );
+
+    sortPresetArr();
   }
 };
 
 class ColorTimePreset : public ColorPreset {
 public:
-  void resetColorTimePresetArr() {
+  ColorTimePreset(int maxSize) {
+    makeColorPresetArr(maxSize);  // 배열 크기 설정
+  }
+  ~ColorTimePreset() {
+    purgeColorPresetArr();
+  }
+
+  void reset_colorPresetArr() {
     // 초기화: 모든 요소를 기본값으로 설정
-    colorTimePresetSize = 0;
+    colorPresetSize = 0;
 
     // 새벽 시간대 기본 색상 (부드러운 황갈색)
-    colorTimePresetArr[colorTimePresetSize++] = {
+    addColorPreset(
       1,
       6,                // startIndexTime: 01:00
       18,               // endIndexTime: 03:00
       0b1111111,        // 일요일부터 토요일까지
       { 210, 105, 30 }  // 부드러운 황갈색
-    };
+    );
 
     // 아침 시간대 기본 색상 (밝은 오렌지색)
-    colorTimePresetArr[colorTimePresetSize++] = {
+    addColorPreset(
       2,
       42,              // startIndexTime: 07:00
       60,              // endIndexTime: 10:00
       0b0011111,       // 월요일부터 금요일까지
       { 255, 165, 0 }  // 밝은 오렌지색
-    };
+    );
 
     // 대낮 시간대 기본 색상 (밝은 흰색)
-    colorTimePresetArr[colorTimePresetSize++] = {
+    addColorPreset(
       3,
       60,                // startIndexTime: 10:00
       96,                // endIndexTime: 16:00
       0b1111111,         // 일요일부터 토요일까지
       { 255, 255, 255 }  // 밝은 흰색, 최대 밝기
-    };
+    );
 
     // 오후 시간대 기본 색상 (짙은 주황색)
-    colorTimePresetArr[colorTimePresetSize++] = {
+    addColorPreset(
       4,
       96,              // startIndexTime: 16:00
       108,             // endIndexTime: 18:00
       0b0011111,       // 월요일부터 금요일까지
       { 255, 140, 0 }  // 짙은 주황색
-    };
+    );
 
     // 저녁 시간대 기본 색상 (짙은 핑크색)
-    colorTimePresetArr[colorTimePresetSize++] = {
+    addColorPreset(
       5,
       108,               // startIndexTime: 18:00
       120,               // endIndexTime: 20:00
       0b0111111,         // 월요일부터 금요일까지
       { 219, 112, 147 }  // 짙은 핑크색
-    };
+    );
 
     // 한밤중 기본 색상 (아주 어두운 빨간색)
-    colorTimePresetArr[colorTimePresetSize++] = {
+    addColorPreset(
       6,
       126,          // startIndexTime: 21:00
       6,            // endIndexTime: 03:00
       0b1111111,    // 일요일부터 토요일까지
       { 30, 0, 0 }  // 매우 어두운 빨간색
-    };
-  }
-  bool addColorPreset(uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_arr[], RGBstruct ledColor) {
-    if (colorTimePresetSize >= MAX_TIME_PRESETS) {
-      // 배열이 가득 찼습니다.
-      return false;
-    }
+    );
 
-    // dayOfWeek_arr[]를 비트마스크로 변환
-    uint8_t dayOfWeek_bitmask = 0;
-    for (int i = 0; dayOfWeek_arr[i] != -1; i++) {
-      if (dayOfWeek_arr[i] >= 0 && dayOfWeek_arr[i] <= 6) {
-        dayOfWeek_bitmask |= (1 << dayOfWeek_arr[i]);
-      }
-    }
-
-    // 새로운 항목 추가
-    colorTimePresetArr[colorTimePresetSize].startIndexTime = startIndexTime;
-    colorTimePresetArr[colorTimePresetSize].endIndexTime = endIndexTime;
-    colorTimePresetArr[colorTimePresetSize].dayOfWeek_bitmask = dayOfWeek_bitmask;
-    colorTimePresetArr[colorTimePresetSize].ledColor = ledColor;
-
-    colorTimePresetSize++;
-    return true;
+    sortPresetArr();
   }
 };
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+//객체 선언
+ColorCustomPreset colorCustomPreset(MAX_CUSTOM_PRESETS);
+ColorTimePreset colorTimePreset(MAX_TIME_PRESETS);
 
 
 
@@ -330,8 +356,8 @@ uint32_t getColor(DateTime now_dt) {  //시간단독대응 색상값 리턴
   int currentDayOfWeek = now_dt.dayOfTheWeek();
 
   // colorCustomPresetArr 배열을 순회하며 조건에 맞는 항목을 찾음
-  for (int i = 0; i < colorTimePresetSize; i++) {
-    ColorTimePresetStruct preset = colorTimePresetArr[i];
+  for (int i = 0; i < colorTimePreset.get_colorPresetSize(); i++) {
+    ColorPresetStruct preset = colorTimePreset.colorPresetArr[i];
 
     //Serial.print("Checking preset ");
     //Serial.print(i);
@@ -339,7 +365,7 @@ uint32_t getColor(DateTime now_dt) {  //시간단독대응 색상값 리턴
     //Serial.println(preset.ledID_bitmask, BIN);
 
     // 현재 요일이 적용 가능한지 확인
-    if (isContain_dayOfWeek(preset, currentDayOfWeek)) {
+    if (colorTimePreset.isContain_dayOfWeek(preset, currentDayOfWeek)) {
       //Serial.println("Day of week matched.");
 
       // 시간 범위가 같은 날 내에 있는 경우
@@ -377,8 +403,8 @@ uint32_t getColor(String led_select_id, DateTime now_dt) {
   int currentDayOfWeek = now_dt.dayOfTheWeek();
 
   // colorCustomPresetArr 배열을 순회하며 조건에 맞는 항목을 찾음
-  for (int i = 0; i < colorCustomPresetSize; i++) {
-    ColorCustomPresetStruct preset = colorCustomPresetArr[i];
+  for (int i = 0; i < colorCustomPreset.get_colorPresetSize(); i++) {
+    ColorPresetStruct preset = colorCustomPreset.colorPresetArr[i];
 
     //Serial.print("Checking preset ");
     //Serial.print(i);
@@ -386,7 +412,7 @@ uint32_t getColor(String led_select_id, DateTime now_dt) {
     //Serial.println(preset.ledID_bitmask, BIN);
 
     // 현재 요일이 적용 가능한지 확인
-    if (isContain_dayOfWeek(preset, currentDayOfWeek)) {
+    if (colorCustomPreset.isContain_dayOfWeek(preset, currentDayOfWeek)) {
       //Serial.println("Day of week matched.");
 
       // 시간 범위가 같은 날 내에 있는 경우
@@ -395,7 +421,7 @@ uint32_t getColor(String led_select_id, DateTime now_dt) {
           //Serial.println("Time matched.");
 
           // led_select_id가 포함되어 있는지 확인
-          if (isContains_ledID(preset, led_select_id)) {
+          if (colorCustomPreset.isContains_ledID(preset, led_select_id)) {
             //Serial.println("LED select ID matched. Returning preset color.");
             //return preset.ledColor; // 조건을 만족하면 즉시 ledColor 반환
 
@@ -410,7 +436,7 @@ uint32_t getColor(String led_select_id, DateTime now_dt) {
           //Serial.println("Time matched (next day).");
 
           // led_select_id가 포함되어 있는지 확인
-          if (isContains_ledID(preset, led_select_id)) {
+          if (colorCustomPreset.isContains_ledID(preset, led_select_id)) {
             //Serial.println("LED select ID matched. Returning preset color.");
             //return preset.ledColor; // 조건을 만족하면 즉시 ledColor 반환
 
@@ -427,6 +453,8 @@ uint32_t getColor(String led_select_id, DateTime now_dt) {
   return getColor(now_dt);  // 시간 단독 대응 기본 색상 반환
   //return led_off;
 }
+
+
 
 
 void flowWatchFace(DateTime now_dt) {
@@ -477,6 +505,107 @@ void blinkWatchFace() {
   showingHour = 0;
 }
 
+
+
+void jsonSerialProcesser(String data) {
+  //**JSON**
+  /*
+  {
+    "function": "preset_edit",  // "preset_edit"
+    "presetType": "custom",  // "custom" 또는 "time" 중 하나의 값 사용
+    "presetCurd": "create"   // "create", "update", "read", "delete"
+    "presetData": [
+      {
+        "priority": 1,  // 우선순위
+        "ledID_bitmask": 129,  // 비트마스크 (0b10000001의 10진수 표현)
+        "startIndexTime": 6,  // 1일을 10분 단위로 쪼갬 (0부터 143까지 가능)
+        "endIndexTime": 18,  // 1일을 10분 단위로 쪼갬 (0부터 143까지 가능)
+        "dayOfWeek_bitmask": 63,  // 비트마스크 (0b0111111의 10진수 표현), 월요일부터 토요일
+        "ledColor": {
+          "r": 255,
+          "g": 140,
+          "b": 100
+        }
+      },
+      {
+        "priority": 2,  // 우선순위
+        "ledID_bitmask": 129,  // 비트마스크 (0b10000001의 10진수 표현)
+        "startIndexTime": 6,  // 1일을 10분 단위로 쪼갬
+        "endIndexTime": 18,  // 1일을 10분 단위로 쪼갬
+        "dayOfWeek_bitmask": 63,  // 비트마스크 (0b0111111의 10진수 표현), 월요일부터 토요일
+        "ledColor": {
+          "r": 255,
+          "g": 140,
+          "b": 100
+        }
+      }
+    ]
+  }
+  */
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, data);
+
+  // Test if parsing succeeds.
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return;
+  }
+
+  JsonObject obj = doc.as<JsonObject>();
+
+  if (obj["function"] == "preset_edit") {
+    jsonPresetEdit(obj);
+  }
+}
+
+void jsonPresetEdit(JsonObject obj) {
+  JsonArray arr = obj["presetData"].as<JsonArray>();
+  if (obj["presetType"] == "custom") {
+    if (obj["presetCurd"] == "create") {
+      jsonObjParser_add_colorCustomPreset(arr);
+    }
+  } else if (obj["presetType"] == "time") {
+    if (obj["presetCurd"] == "create") {
+      jsonObjParser_add_colorTimePreset(arr);
+    }
+  }
+}
+
+void jsonObjParser_add_colorCustomPreset(JsonArray presetData) {  //TODO: JSON형식에 맞춰 변경
+  for (JsonObject item : presetData) {
+    colorCustomPreset.addColorPreset(
+      item["priority"].as<uint8_t>(),            // 형 변환 추가
+      item["ledID_bitmask"].as<uint8_t>(),       // 형 변환 추가
+      item["startIndexTime"].as<uint8_t>(),      // 형 변환 추가
+      item["endIndexTime"].as<uint8_t>(),        // 형 변환 추가
+      item["dayOfWeek_bitmask"].as<uint8_t>(),   // 형 변환 추가
+      (RGBstruct){ 
+          item["ledColor"]["r"].as<uint8_t>(),   // 형 변환 추가
+          item["ledColor"]["g"].as<uint8_t>(),   // 형 변환 추가
+          item["ledColor"]["b"].as<uint8_t>()    // 형 변환 추가
+      }
+    );
+    colorCustomPreset.sortPresetArr();
+  }
+}
+
+void jsonObjParser_add_colorTimePreset(JsonArray presetData) {  //TODO: JSON형식에 맞춰 변경
+  for (JsonObject item : presetData) {
+    colorTimePreset.addColorPreset(            // colorCustomPreset 대신 colorTimePreset
+      item["priority"].as<uint8_t>(),          // 형 변환 추가
+      item["startIndexTime"].as<uint8_t>(),    // 형 변환 추가
+      item["endIndexTime"].as<uint8_t>(),      // 형 변환 추가
+      item["dayOfWeek_bitmask"].as<uint8_t>(),     // 형 변환 추가
+      (RGBstruct){ 
+          item["ledColor"]["r"].as<uint8_t>(), // 형 변환 추가
+          item["ledColor"]["g"].as<uint8_t>(), // 형 변환 추가
+          item["ledColor"]["b"].as<uint8_t>()  // 형 변환 추가
+      }
+    );
+    colorTimePreset.sortPresetArr();
+  }
+}
 
 
 
@@ -715,15 +844,20 @@ void refreshWatchFace(DateTime dt) {
 
 unsigned long processing_offset = 0;
 void setup() {
-  rtc.begin();
   Serial.begin(4800);
+  Serial.println("Clock Startup...");
+  rtc.begin();
   pixels.begin();
   pixels.show();  // 모든 LED를 꺼서 초기화
 
-  //resetColorCustomPresetArr();  //프리셋 리셋, 삭제필요
-  //resetColorTimePresetArr();    //프리셋 리셋, 삭제필요
+
+  colorCustomPreset.reset_colorPresetArr();  //프리셋 리셋, 삭제필요
+  colorTimePreset.reset_colorPresetArr();    //프리셋 리셋, 삭제필요
 
   flowWatchFace();
+
+  print_freeMemory();
+  Serial.println("Clock Booted!!!");
 }
 void loop() {
   delay(5);
@@ -749,5 +883,6 @@ void loop() {
     processing_offset = millis() - start_processing_offset;
     Serial.print("processing_offset: ");
     Serial.println(processing_offset);
+    print_freeMemory();
   }
 }
