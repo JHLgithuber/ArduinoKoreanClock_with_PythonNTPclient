@@ -135,14 +135,14 @@ public:
     static int dayOfWeek_arr[8];
     int index = 0;
 
-    if (preset.dayOfWeek_bitmask & 0b00000001) dayOfWeek_arr[index++] = 0;
-    if (preset.dayOfWeek_bitmask & 0b00000010) dayOfWeek_arr[index++] = 1;
-    if (preset.dayOfWeek_bitmask & 0b00000100) dayOfWeek_arr[index++] = 2;
-    if (preset.dayOfWeek_bitmask & 0b00001000) dayOfWeek_arr[index++] = 3;
-    if (preset.dayOfWeek_bitmask & 0b00010000) dayOfWeek_arr[index++] = 4;
-    if (preset.dayOfWeek_bitmask & 0b00100000) dayOfWeek_arr[index++] = 5;
-    if (preset.dayOfWeek_bitmask & 0b01000000) dayOfWeek_arr[index++] = 6;
-    if (preset.dayOfWeek_bitmask & 0b10000000) dayOfWeek_arr[index++] = 7;
+    if (preset.dayOfWeek_bitmask & 0b00000001) dayOfWeek_arr[index++] = 0;  //일요일
+    if (preset.dayOfWeek_bitmask & 0b00000010) dayOfWeek_arr[index++] = 1;  //월요일
+    if (preset.dayOfWeek_bitmask & 0b00000100) dayOfWeek_arr[index++] = 2;  //화요일
+    if (preset.dayOfWeek_bitmask & 0b00001000) dayOfWeek_arr[index++] = 3;  //수요일
+    if (preset.dayOfWeek_bitmask & 0b00010000) dayOfWeek_arr[index++] = 4;  //목요일
+    if (preset.dayOfWeek_bitmask & 0b00100000) dayOfWeek_arr[index++] = 5;  //금요일
+    if (preset.dayOfWeek_bitmask & 0b01000000) dayOfWeek_arr[index++] = 6;  //토요일
+    if (preset.dayOfWeek_bitmask & 0b10000000) dayOfWeek_arr[index++] = 7;  //일요일(안씀)
 
     for (int i = index; i < 8; i++) {
       dayOfWeek_arr[i] = -1;  // 사용되지 않는 값 표시
@@ -168,7 +168,7 @@ public:
   // LED ID 배열을 받아 비트마스크로 변환 후 호출하는 함수
   bool addColorPreset(uint8_t priority, String led_select_id_arr[], uint8_t startIndexTime, uint8_t endIndexTime, uint8_t dayOfWeek_bitmask, RGBstruct ledColor) {
     uint8_t ledID_bitmask = 0;
-    for (int i = 0; led_select_id_arr[i] != ""; i++) {
+    for (int i = 0; i < (sizeof(led_select_id_arr) / sizeof(led_select_id_arr[0])); i++) {
       if (led_select_id_arr[i] == "오전") ledID_bitmask |= 0b00000001;
       if (led_select_id_arr[i] == "오후") ledID_bitmask |= 0b00000010;
       if (led_select_id_arr[i] == "자정") ledID_bitmask |= 0b00000100;
@@ -515,7 +515,7 @@ void jsonSerialProcesser(String data) {
     "presetType": "custom",  // "custom" 또는 "time" 중 하나의 값 사용
     "presetCurd": "create"   // "create", "update", "read", "delete"
     "presetData": [
-      {
+      { //비트마스크는 JSON에서 사용하지 않음
         "priority": 1,  // 우선순위
         "ledID_bitmask": 129,  // 비트마스크 (0b10000001의 10진수 표현)
         "startIndexTime": 6,  // 1일을 10분 단위로 쪼갬 (0부터 143까지 가능)
@@ -529,10 +529,10 @@ void jsonSerialProcesser(String data) {
       },
       {
         "priority": 2,  // 우선순위
-        "ledID_bitmask": 129,  // 비트마스크 (0b10000001의 10진수 표현)
+        "ledID_arr": ["오전", "오후", "자정", "정오", "시_시각", "시_접미사", "분_시각", "분_접미사"] // ""으로 끝남 및 남는공간 채움, 9개 요소
         "startIndexTime": 6,  // 1일을 10분 단위로 쪼갬
         "endIndexTime": 18,  // 1일을 10분 단위로 쪼갬
-        "dayOfWeek_bitmask": 63,  // 비트마스크 (0b0111111의 10진수 표현), 월요일부터 토요일
+        "dayOfWeek_arr": [0,1,3,5,6,-1,-1,-1]  //-1로 끝남 및 남는공간 채움, 8개의 요소, 0부터 6까지=일요일부터 토요일까지
         "ledColor": {
           "r": 255,
           "g": 140,
@@ -572,37 +572,56 @@ void jsonPresetEdit(JsonObject obj) {
   }
 }
 
-void jsonObjParser_add_colorCustomPreset(JsonArray presetData) {  //TODO: JSON형식에 맞춰 변경
+void jsonObjParser_add_colorCustomPreset(JsonArray presetData) {
   for (JsonObject item : presetData) {
+    // JSON 배열 크기를 동적으로 확인하여 배열 생성
+    int ledArraySize = item["ledID_arr"].size();
+    int dayArraySize = item["dayOfWeek_arr"].size();
+
+    // 동적으로 배열 생성
+    String* led_select_id_arr = new String[ledArraySize];
+    String* dayOfWeek_arr = new String[dayArraySize];
+
+    // JSON 배열을 동적 String 배열로 복사
+    copyArray(item["ledID_arr"].as<JsonArray>(), led_select_id_arr, ledArraySize);
+    copyArray(item["dayOfWeek_arr"].as<JsonArray>(), dayOfWeek_arr, dayArraySize);
+
     colorCustomPreset.addColorPreset(
-      item["priority"].as<uint8_t>(),            // 형 변환 추가
-      item["ledID_bitmask"].as<uint8_t>(),       // 형 변환 추가
-      item["startIndexTime"].as<uint8_t>(),      // 형 변환 추가
-      item["endIndexTime"].as<uint8_t>(),        // 형 변환 추가
-      item["dayOfWeek_bitmask"].as<uint8_t>(),   // 형 변환 추가
-      (RGBstruct){ 
-          item["ledColor"]["r"].as<uint8_t>(),   // 형 변환 추가
-          item["ledColor"]["g"].as<uint8_t>(),   // 형 변환 추가
-          item["ledColor"]["b"].as<uint8_t>()    // 형 변환 추가
-      }
-    );
+      item["priority"].as<uint8_t>(),           // 형 변환 추가
+      led_select_id_arr,      // 형 변환 추가
+      item["startIndexTime"].as<uint8_t>(),     // 형 변환 추가
+      item["endIndexTime"].as<uint8_t>(),       // 형 변환 추가
+      dayOfWeek_arr,  // 형 변환 추가
+      (RGBstruct){
+        item["ledColor"]["r"].as<uint8_t>(),  // 형 변환 추가
+        item["ledColor"]["g"].as<uint8_t>(),  // 형 변환 추가
+        item["ledColor"]["b"].as<uint8_t>()   // 형 변환 추가
+      });
     colorCustomPreset.sortPresetArr();
   }
 }
 
-void jsonObjParser_add_colorTimePreset(JsonArray presetData) {  //TODO: JSON형식에 맞춰 변경
+void jsonObjParser_add_colorTimePreset(JsonArray presetData) {
   for (JsonObject item : presetData) {
-    colorTimePreset.addColorPreset(            // colorCustomPreset 대신 colorTimePreset
-      item["priority"].as<uint8_t>(),          // 형 변환 추가
-      item["startIndexTime"].as<uint8_t>(),    // 형 변환 추가
-      item["endIndexTime"].as<uint8_t>(),      // 형 변환 추가
-      item["dayOfWeek_bitmask"].as<uint8_t>(),     // 형 변환 추가
-      (RGBstruct){ 
-          item["ledColor"]["r"].as<uint8_t>(), // 형 변환 추가
-          item["ledColor"]["g"].as<uint8_t>(), // 형 변환 추가
-          item["ledColor"]["b"].as<uint8_t>()  // 형 변환 추가
-      }
-    );
+    // JSON 배열 크기를 동적으로 확인하여 배열 생성
+    int dayArraySize = item["dayOfWeek_arr"].size();
+
+    // 동적으로 배열 생성
+    String* dayOfWeek_arr = new String[dayArraySize];
+
+    // JSON 배열을 동적 String 배열로 복사
+    copyArray(item["dayOfWeek_arr"].as<JsonArray>(), dayOfWeek_arr, dayArraySize);
+
+    colorTimePreset.addColorPreset(             // colorCustomPreset 대신 colorTimePreset
+      item["priority"].as<uint8_t>(),           // 형 변환 추가
+      item["startIndexTime"].as<uint8_t>(),     // 형 변환 추가
+      item["endIndexTime"].as<uint8_t>(),       // 형 변환 추가
+      dayOfWeek_arr,  // 형 변환 추가
+      (RGBstruct){
+        item["ledColor"]["r"].as<uint8_t>(),  // 형 변환 추가
+        item["ledColor"]["g"].as<uint8_t>(),  // 형 변환 추가
+        item["ledColor"]["b"].as<uint8_t>()   // 형 변환 추가
+      });
     colorTimePreset.sortPresetArr();
   }
 }
@@ -610,19 +629,26 @@ void jsonObjParser_add_colorTimePreset(JsonArray presetData) {  //TODO: JSON형�
 
 
 void printDateTime(DateTime dt) {
+  // 요일 문자열 배열
+  const char* daysOfWeek[] = { "일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일" };
+  int dayOfWeek = dt.dayOfTheWeek();  // 0 = 일요일, 6 = 토요일
+
   // DateTime 객체를 시리얼로 출력하는 함수
   Serial.print(dt.year());
   Serial.print('/');
   Serial.print(dt.month());
   Serial.print('/');
   Serial.print(dt.day());
-  Serial.print(' ');
+  Serial.print("(");
+  Serial.print(daysOfWeek[dayOfWeek]);
+  Serial.print(") ");
   Serial.print(dt.hour());
   Serial.print(':');
   Serial.print(dt.minute());
   Serial.print(':');
   Serial.println(dt.second());
 }
+
 void printStringArray(String arr[], int size) {
   for (int i = 0; i < size; i++) {
     Serial.print(arr[i]);
@@ -860,7 +886,7 @@ void setup() {
   Serial.println("Clock Booted!!!");
 }
 void loop() {
-  delay(5);
+  delay(1);
   if (Serial.available() > 0) {
     ProcessingSerial();
   }
@@ -879,10 +905,12 @@ void loop() {
     showingHour = now.hour();
     showingMinute = now.minute();
     refreshWatchFace(now);
-
     processing_offset = millis() - start_processing_offset;
+
+    Serial.println("");
+    printDateTime(now);
+    print_freeMemory();
     Serial.print("processing_offset: ");
     Serial.println(processing_offset);
-    print_freeMemory();
   }
 }
