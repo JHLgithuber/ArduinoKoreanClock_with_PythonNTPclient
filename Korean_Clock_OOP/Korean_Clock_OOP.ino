@@ -10,8 +10,8 @@ RTC_DS3231 rtc;
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 
-#define MAX_CUSTOM_PRESETS 50
-#define MAX_TIME_PRESETS 30
+#define MAX_CUSTOM_PRESETS 2
+#define MAX_TIME_PRESETS 2
 
 
 int showingMinute = 0;
@@ -38,10 +38,17 @@ int freeMemory() {
   return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 }
 
-void print_freeMemory() {
-  Serial.print("Free memory before adding preset: ");
+void print_freeMemory(const String function) {
+  Serial.print(F("Free memory "));
+  Serial.print(function);
+  Serial.print(F(": "));
   Serial.println(freeMemory());
 }
+void print_freeMemory() {
+  Serial.print(F("Free memory: "));
+  Serial.println(freeMemory());
+}
+
 
 uint8_t get_IndexTime(DateTime dt) {
   // 총 몇 번째 10분 단위인지 계산
@@ -53,8 +60,10 @@ uint8_t get_IndexTime(DateTime dt) {
 
 
 class ColorPreset {
+private:
+  ColorPresetStruct* colorPresetArr;  // 동적 배열 포인터
 protected:
-  void makeColorPresetArr(int size) {
+  void makeColorPresetArr(const int size) {
     maxSize = size;
     colorPresetArr = new ColorPresetStruct[maxSize];  // 동적 배열 할당
   }
@@ -66,7 +75,7 @@ protected:
   int maxSize = 0;
 
 public:
-  ColorPresetStruct* colorPresetArr;  // 동적 배열 포인터
+
 
   int get_colorPresetSize() const {
     return colorPresetSize;
@@ -88,19 +97,19 @@ public:
     }
   }
 
-  String* get_LedID_arr(ColorPresetStruct preset) {
+  String* get_LedID_arr(const ColorPresetStruct& preset) {
     static String led_id_arr[8];
     int index = 0;
 
     // 각 비트에 해당하는 ID를 배열에 추가
-    if (preset.ledID_bitmask & 0b00000001) led_id_arr[index++] = "오전";
-    if (preset.ledID_bitmask & 0b00000010) led_id_arr[index++] = "오후";
-    if (preset.ledID_bitmask & 0b00000100) led_id_arr[index++] = "자정";
-    if (preset.ledID_bitmask & 0b00001000) led_id_arr[index++] = "정오";
-    if (preset.ledID_bitmask & 0b00010000) led_id_arr[index++] = "시_시각";
-    if (preset.ledID_bitmask & 0b00100000) led_id_arr[index++] = "시_접미사";
-    if (preset.ledID_bitmask & 0b01000000) led_id_arr[index++] = "분_시각";
-    if (preset.ledID_bitmask & 0b10000000) led_id_arr[index++] = "분_접미사";
+    if (preset.ledID_bitmask & 0b00000001) led_id_arr[index++] = F("오전");
+    if (preset.ledID_bitmask & 0b00000010) led_id_arr[index++] = F("오후");
+    if (preset.ledID_bitmask & 0b00000100) led_id_arr[index++] = F("자정");
+    if (preset.ledID_bitmask & 0b00001000) led_id_arr[index++] = F("정오");
+    if (preset.ledID_bitmask & 0b00010000) led_id_arr[index++] = F("시_시각");
+    if (preset.ledID_bitmask & 0b00100000) led_id_arr[index++] = F("시_접미사");
+    if (preset.ledID_bitmask & 0b01000000) led_id_arr[index++] = F("분_시각");
+    if (preset.ledID_bitmask & 0b10000000) led_id_arr[index++] = F("분_접미사");
 
     // 나머지 요소는 빈 문자열로 초기화
     for (int i = index; i < 8; i++) {
@@ -110,7 +119,7 @@ public:
     return led_id_arr;
   }
 
-  bool isContains_ledID(ColorPresetStruct preset, String target) {
+  bool isContains_ledID(const ColorPresetStruct& preset, const String target) {
     String* led_id_arr = get_LedID_arr(preset);
 
     for (int i = 0; i < 8; i++) {
@@ -121,7 +130,7 @@ public:
     return false;  // 배열에 해당 문자열이 없음
   }
 
-  bool isContain_dayOfWeek(ColorPresetStruct preset, int target) {
+  bool isContain_dayOfWeek(const ColorPresetStruct& preset, const int target) {
     int* dayOfWeek_arr = get_dayOfWeek_arr(preset);
 
     for (int i = 0; i < 8; i++) {
@@ -131,7 +140,7 @@ public:
     return false;  // 배열에 해당 값이 없음
   }
 
-  int* get_dayOfWeek_arr(ColorPresetStruct preset) {
+  int* get_dayOfWeek_arr(const ColorPresetStruct& preset) {
     static int dayOfWeek_arr[8];
     int index = 0;
 
@@ -153,9 +162,9 @@ public:
 
 
   // 실질적 구조체 배열 추가 함수 - 모든 비트마스크와 우선순위를 사용
-  bool addColorPreset(uint8_t priority, uint8_t ledID_bitmask, uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_bitmask, RGBstruct ledColor) {
+  bool addColorPreset(const uint8_t priority, const uint8_t ledID_bitmask, const uint8_t startIndexTime, const uint8_t endIndexTime, const int dayOfWeek_bitmask, const RGBstruct ledColor) {
     if (colorPresetSize >= maxSize) {
-      Serial.println("메모리가 가득 찼습니다.");
+      Serial.println(F("addColorPreset_memoryFULL"));
       return false;  // 배열이 가득 찼습니다.
     }
 
@@ -166,22 +175,22 @@ public:
     return true;
   }
   // LED ID 배열을 받아 비트마스크로 변환 후 호출하는 함수
-  bool addColorPreset(uint8_t priority, String led_select_id_arr[], uint8_t startIndexTime, uint8_t endIndexTime, uint8_t dayOfWeek_bitmask, RGBstruct ledColor) {
+  bool addColorPreset(const uint8_t priority, const String led_select_id_arr[], const uint8_t startIndexTime, const uint8_t endIndexTime, const uint8_t dayOfWeek_bitmask, const RGBstruct ledColor) {
     uint8_t ledID_bitmask = 0;
     for (int i = 0; i < (sizeof(led_select_id_arr) / sizeof(led_select_id_arr[0])); i++) {
-      if (led_select_id_arr[i] == "오전") ledID_bitmask |= 0b00000001;
-      if (led_select_id_arr[i] == "오후") ledID_bitmask |= 0b00000010;
-      if (led_select_id_arr[i] == "자정") ledID_bitmask |= 0b00000100;
-      if (led_select_id_arr[i] == "정오") ledID_bitmask |= 0b00001000;
-      if (led_select_id_arr[i] == "시_시각") ledID_bitmask |= 0b00010000;
-      if (led_select_id_arr[i] == "시_접미사") ledID_bitmask |= 0b00100000;
-      if (led_select_id_arr[i] == "분_시각") ledID_bitmask |= 0b01000000;
-      if (led_select_id_arr[i] == "분_접미사") ledID_bitmask |= 0b10000000;
+      if (led_select_id_arr[i] == F("오전")) ledID_bitmask |= 0b00000001;
+      if (led_select_id_arr[i] == F("오후")) ledID_bitmask |= 0b00000010;
+      if (led_select_id_arr[i] == F("자정")) ledID_bitmask |= 0b00000100;
+      if (led_select_id_arr[i] == F("정오")) ledID_bitmask |= 0b00001000;
+      if (led_select_id_arr[i] == F("시_시각")) ledID_bitmask |= 0b00010000;
+      if (led_select_id_arr[i] == F("시_접미사")) ledID_bitmask |= 0b00100000;
+      if (led_select_id_arr[i] == F("분_시각")) ledID_bitmask |= 0b01000000;
+      if (led_select_id_arr[i] == F("분_접미사")) ledID_bitmask |= 0b10000000;
     }
     return addColorPreset(priority, ledID_bitmask, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor);
   }
   // dayOfWeek 배열을 받아 비트마스크로 변환 후 호출하는 함수
-  bool addColorPreset(uint8_t priority, String led_select_id_arr[], uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_arr[], RGBstruct ledColor) {
+  bool addColorPreset(const uint8_t priority, const String led_select_id_arr[], const uint8_t startIndexTime, const uint8_t endIndexTime, const int dayOfWeek_arr[], const RGBstruct ledColor) {
     uint8_t dayOfWeek_bitmask = 0;
     for (int i = 0; dayOfWeek_arr[i] != -1; i++) {
       if (dayOfWeek_arr[i] >= 0 && dayOfWeek_arr[i] <= 6) {
@@ -191,19 +200,43 @@ public:
     return addColorPreset(priority, led_select_id_arr, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor);
   }
   // LED ID 없이 dayOfWeek 배열을 비트마스크로 변환 후 호출하는 함수
-  bool addColorPreset(uint8_t priority, uint8_t startIndexTime, uint8_t endIndexTime, int dayOfWeek_arr[], RGBstruct ledColor) {
-    String default_led_select_id_arr[] = { "" };
+  bool addColorPreset(const uint8_t priority, const uint8_t startIndexTime, const uint8_t endIndexTime, const int dayOfWeek_arr[], const RGBstruct ledColor) {
+    const PROGMEM String default_led_select_id_arr[] = { "" };
     return addColorPreset(priority, default_led_select_id_arr, startIndexTime, endIndexTime, dayOfWeek_arr, ledColor);
   }
   // LED ID 없이 dayOfWeek 비트마스크만 받아 호출하는 함수
-  bool addColorPreset(uint8_t priority, uint8_t startIndexTime, uint8_t endIndexTime, uint8_t dayOfWeek_bitmask, RGBstruct ledColor) {
+  bool addColorPreset(const uint8_t priority, const uint8_t startIndexTime, const uint8_t endIndexTime, const uint8_t dayOfWeek_bitmask, const RGBstruct ledColor) {
     return addColorPreset(priority, (uint8_t)0, startIndexTime, endIndexTime, dayOfWeek_bitmask, ledColor);
+  }
+
+
+  //배열을 구함
+  // 배열의 포인터를 반환하는 함수
+  ColorPresetStruct* getColorPresetArr() {
+    return colorPresetArr;  // 배열의 첫 번째 요소에 대한 포인터 반환
+  }
+  // 특정 인덱스의 요소를 복사해서 리턴하는 함수
+  ColorPresetStruct getColorPresetArr(const int index) {
+    if (index >= 0 && index < colorPresetSize) {
+      return colorPresetArr[index];  // 인덱스의 요소를 복사하여 반환
+    } else {
+      // 잘못된 인덱스의 경우 빈 객체를 반환하거나 오류를 처리해야 함
+      return ColorPresetStruct{};  // 기본 생성자로 초기화된 구조체 반환
+    }
+  }
+
+
+
+  //배열을 비움
+  void clearColorPreset(const int newSize) {
+    purgeColorPresetArr();
+    makeColorPresetArr(newSize);
   }
 };
 
 class ColorCustomPreset : public ColorPreset {
 public:
-  ColorCustomPreset(int maxSize) {
+  ColorCustomPreset(const int maxSize) {
     makeColorPresetArr(maxSize);  // 배열 크기 설정
   }
   ~ColorCustomPreset() {
@@ -270,7 +303,7 @@ public:
 
 class ColorTimePreset : public ColorPreset {
 public:
-  ColorTimePreset(int maxSize) {
+  ColorTimePreset(const int maxSize) {
     makeColorPresetArr(maxSize);  // 배열 크기 설정
   }
   ~ColorTimePreset() {
@@ -357,7 +390,7 @@ uint32_t getColor(DateTime now_dt) {  //시간단독대응 색상값 리턴
 
   // colorCustomPresetArr 배열을 순회하며 조건에 맞는 항목을 찾음
   for (int i = 0; i < colorTimePreset.get_colorPresetSize(); i++) {
-    ColorPresetStruct preset = colorTimePreset.colorPresetArr[i];
+    ColorPresetStruct preset = colorTimePreset.getColorPresetArr(i);
 
     //Serial.print("Checking preset ");
     //Serial.print(i);
@@ -398,13 +431,13 @@ uint32_t getColor(DateTime now_dt) {  //시간단독대응 색상값 리턴
   return getColor();  //  기본 색상 반환
   //return led_off;
 }
-uint32_t getColor(String led_select_id, DateTime now_dt) {
+uint32_t getColor(const String led_select_id, const DateTime now_dt) {
   uint8_t currentIndexTime = (now_dt.hour() * 60 + now_dt.minute()) / 10;
   int currentDayOfWeek = now_dt.dayOfTheWeek();
 
   // colorCustomPresetArr 배열을 순회하며 조건에 맞는 항목을 찾음
   for (int i = 0; i < colorCustomPreset.get_colorPresetSize(); i++) {
-    ColorPresetStruct preset = colorCustomPreset.colorPresetArr[i];
+    ColorPresetStruct preset = colorCustomPreset.getColorPresetArr(i);
 
     //Serial.print("Checking preset ");
     //Serial.print(i);
@@ -457,7 +490,7 @@ uint32_t getColor(String led_select_id, DateTime now_dt) {
 
 
 
-void flowWatchFace(DateTime now_dt) {
+void flowWatchFace(const DateTime now_dt) {
   for (int i = 0; i < NUMPIXELS; i++) {
     pixels.setPixelColor(i, getColor(now_dt));  // 모든 LED를 시간대응으로 설정
     pixels.show();
@@ -484,7 +517,7 @@ void flowWatchFace() {
   delay(150);
 }
 
-void blinkWatchFace(DateTime now_dt) {
+void blinkWatchFace(const DateTime now_dt) {
   pixels.fill(getColor(now_dt), 0, NUMPIXELS);
   pixels.show();
   delay(blinkTime);
@@ -505,17 +538,38 @@ void blinkWatchFace() {
   showingHour = 0;
 }
 
+void changeSpeedSerial(const JsonObject obj) {
+  long speed = 115200;  // 기본값
+
+  // 'speed' 키가 존재하는지 확인
+  if (obj.containsKey("speed")) {
+    speed = obj["speed"].as<long>();
+  }
+
+  // 새로운 속도 설정
+  Serial.print(F("newSpeed: "));
+  Serial.println(speed);
+  Serial.end();
+  Serial.begin(speed);
+}
+
+void lowSpeedSerial() {
+  StaticJsonDocument<64> doc;
+  doc["speed"] = 4800;  // 4800 설정
+  changeSpeedSerial(doc.as<JsonObject>());
+}
 
 
-void jsonSerialProcesser(String data) {
+StaticJsonDocument<1000> doc;
+void jsonSerialProcesser(const String data) {
   //**JSON**
   /*
   {
     "function": "preset_edit",  // "preset_edit"
     "presetType": "custom",  // "custom" 또는 "time" 중 하나의 값 사용
-    "presetCurd": "create"   // "create", "update", "read", "delete"
+    "presetCurd": "create"   // "create", "read", "delete"
     "presetData": [
-      { //비트마스크는 JSON에서 사용하지 않음
+      { //이런 형태의 비트마스크는 JSON에서 사용하지 않음
         "priority": 1,  // 우선순위
         "ledID_bitmask": 129,  // 비트마스크 (0b10000001의 10진수 표현)
         "startIndexTime": 6,  // 1일을 10분 단위로 쪼갬 (0부터 143까지 가능)
@@ -542,37 +596,70 @@ void jsonSerialProcesser(String data) {
     ]
   }
   */
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, data);
+  //data="{\"function\":\"preset_edit\",\"presetType\":\"custom\",\"presetCurd\":\"create\",\"presetData\":[{\"priority\":1,\"ledID_bitmask\":129,\"startIndexTime\":6,\"endIndexTime\":18,\"dayOfWeek_bitmask\":63,\"ledColor\":{\"r\":255,\"g\":140,\"b\":100}},{\"priority\":2,\"ledID_arr\":[\"오전\",\"오후\",\"자정\",\"정오\",\"시_시각\",\"시_접미사\",\"분_시각\",\"분_접미사\"],\"startIndexTime\":6,\"endIndexTime\":18,\"dayOfWeek_arr\":[0,1,3,5,6,-1,-1,-1],\"ledColor\":{\"r\":255,\"g\":140,\"b\":100}}]}";
 
-  // Test if parsing succeeds.
+  print_freeMemory(F("before json"));
+  Serial.println("data: " + data);
+  
+  // JSON 데이터 파싱
+  DeserializationError error = deserializeJson(doc, data);
   if (error) {
     Serial.print(F("deserializeJson() failed: "));
     Serial.println(error.f_str());
     return;
   }
 
+  // JsonObject 생성 및 유효성 검사
   JsonObject obj = doc.as<JsonObject>();
-
-  if (obj["function"] == "preset_edit") {
-    jsonPresetEdit(obj);
+  if (!obj.containsKey("function")) {
+    Serial.println(F("Error: 'function' key is missing!"));
+    return;
   }
+
+  if (obj["function"] == "adjust_time") {
+    if (obj.containsKey("datetime")) {
+      adjustByJson(obj);
+    } else {
+      Serial.println(F("Error: 'datetime' key is missing in JSON!"));
+    }
+  } else if (obj["function"] == "highspeed_serial") {
+    changeSpeedSerial(obj);
+  } else if (obj["function"] == "preset_edit") {
+    jsonPresetEdit(obj);
+  } else {
+    Serial.println(F("Error: Unknown function in JSON!"));
+  }
+  print_freeMemory(F("after json"));
 }
 
-void jsonPresetEdit(JsonObject obj) {
+void jsonPresetEdit(const JsonObject obj) {
   JsonArray arr = obj["presetData"].as<JsonArray>();
   if (obj["presetType"] == "custom") {
-    if (obj["presetCurd"] == "create") {
-      jsonObjParser_add_colorCustomPreset(arr);
+    if (obj["presetCurd"] == "create") {  //프리셋 추가
+      jsonObjParser_create_colorCustomPreset(arr);
+    } else if (obj["presetCurd"] == "update") {  //모든 프리셋 삭제 후 등록
+      jsonObjParser_update_colorCustomPreset(arr);
+    } else if (obj["presetCurd"] == "read") {  //프리셋 읽기
+      jsonObjParser_read_colorCustomPreset();
+    } else if (obj["presetCurd"] == "delete") {  //모든 프리셋 삭제
+      jsonObjParser_delete_colorCustomPreset();
     }
   } else if (obj["presetType"] == "time") {
     if (obj["presetCurd"] == "create") {
-      jsonObjParser_add_colorTimePreset(arr);
+      jsonObjParser_create_colorTimePreset(arr);
+    } else if (obj["presetCurd"] == "update") {
+      jsonObjParser_update_colorCustomPreset(arr);
+    } else if (obj["presetCurd"] == "read") {
+      jsonObjParser_read_colorCustomPreset();
+    } else if (obj["presetCurd"] == "delete") {
+      jsonObjParser_delete_colorCustomPreset();
+    } else {
+      Serial.println("Unknown JSON obj");
     }
   }
 }
 
-void jsonObjParser_add_colorCustomPreset(JsonArray presetData) {
+void jsonObjParser_create_colorCustomPreset(const JsonArray presetData) {
   for (JsonObject item : presetData) {
     // JSON 배열 크기를 동적으로 확인하여 배열 생성
     int ledArraySize = item["ledID_arr"].size();
@@ -587,21 +674,24 @@ void jsonObjParser_add_colorCustomPreset(JsonArray presetData) {
     copyArray(item["dayOfWeek_arr"].as<JsonArray>(), dayOfWeek_arr, dayArraySize);
 
     colorCustomPreset.addColorPreset(
-      item["priority"].as<uint8_t>(),           // 형 변환 추가
-      led_select_id_arr,      // 형 변환 추가
-      item["startIndexTime"].as<uint8_t>(),     // 형 변환 추가
-      item["endIndexTime"].as<uint8_t>(),       // 형 변환 추가
-      dayOfWeek_arr,  // 형 변환 추가
+      item["priority"].as<uint8_t>(),        // 형 변환 추가
+      led_select_id_arr,                     // 형 변환 추가
+      item["startIndexTime"].as<uint8_t>(),  // 형 변환 추가
+      item["endIndexTime"].as<uint8_t>(),    // 형 변환 추가
+      dayOfWeek_arr,                         // 형 변환 추가
       (RGBstruct){
         item["ledColor"]["r"].as<uint8_t>(),  // 형 변환 추가
         item["ledColor"]["g"].as<uint8_t>(),  // 형 변환 추가
         item["ledColor"]["b"].as<uint8_t>()   // 형 변환 추가
       });
     colorCustomPreset.sortPresetArr();
+
+    // 배열 사용 후 메모리 해제
+    delete[] led_select_id_arr;
+    delete[] dayOfWeek_arr;
   }
 }
-
-void jsonObjParser_add_colorTimePreset(JsonArray presetData) {
+void jsonObjParser_create_colorTimePreset(const JsonArray presetData) {
   for (JsonObject item : presetData) {
     // JSON 배열 크기를 동적으로 확인하여 배열 생성
     int dayArraySize = item["dayOfWeek_arr"].size();
@@ -612,11 +702,11 @@ void jsonObjParser_add_colorTimePreset(JsonArray presetData) {
     // JSON 배열을 동적 String 배열로 복사
     copyArray(item["dayOfWeek_arr"].as<JsonArray>(), dayOfWeek_arr, dayArraySize);
 
-    colorTimePreset.addColorPreset(             // colorCustomPreset 대신 colorTimePreset
-      item["priority"].as<uint8_t>(),           // 형 변환 추가
-      item["startIndexTime"].as<uint8_t>(),     // 형 변환 추가
-      item["endIndexTime"].as<uint8_t>(),       // 형 변환 추가
-      dayOfWeek_arr,  // 형 변환 추가
+    colorTimePreset.addColorPreset(          // colorCustomPreset 대신 colorTimePreset
+      item["priority"].as<uint8_t>(),        // 형 변환 추가
+      item["startIndexTime"].as<uint8_t>(),  // 형 변환 추가
+      item["endIndexTime"].as<uint8_t>(),    // 형 변환 추가
+      dayOfWeek_arr,                         // 형 변환 추가
       (RGBstruct){
         item["ledColor"]["r"].as<uint8_t>(),  // 형 변환 추가
         item["ledColor"]["g"].as<uint8_t>(),  // 형 변환 추가
@@ -625,12 +715,44 @@ void jsonObjParser_add_colorTimePreset(JsonArray presetData) {
     colorTimePreset.sortPresetArr();
   }
 }
+void jsonObjParser_read_colorCustomPreset() {
+  for (int i = 0; i < colorCustomPreset.get_colorPresetSize(); i++) {
+    //TODO: 읽기
+    ColorPresetStruct* arr = colorCustomPreset.getColorPresetArr();
+  }
+}
+void jsonObjParser_read_colorTimePreset() {
+  for (int i = 0; i < colorCustomPreset.get_colorPresetSize(); i++) {
+    //TODO: 읽기
+    ColorPresetStruct* arr = colorCustomPreset.getColorPresetArr();
+  }
+}
+void jsonObjParser_delete_colorCustomPreset() {
+  colorCustomPreset.clearColorPreset(MAX_CUSTOM_PRESETS);
+}
+void jsonObjParser_delete_colorTimePreset() {
+  colorTimePreset.clearColorPreset(MAX_TIME_PRESETS);
+}
+void jsonObjParser_update_colorCustomPreset(JsonArray presetData) {
+  colorCustomPreset.clearColorPreset(MAX_CUSTOM_PRESETS);
+  jsonObjParser_create_colorCustomPreset(presetData);
+}
+void jsonObjParser_update_colorTimePreset(JsonArray presetData) {
+  colorTimePreset.clearColorPreset(MAX_TIME_PRESETS);
+  jsonObjParser_create_colorTimePreset(presetData);
+}
 
 
-
-void printDateTime(DateTime dt) {
+void printDateTime(const DateTime dt) {
   // 요일 문자열 배열
-  const char* daysOfWeek[] = { "일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일" };
+  const char day0[] PROGMEM = "일요일";
+  const char day1[] PROGMEM = "월요일";
+  const char day2[] PROGMEM = "화요일";
+  const char day3[] PROGMEM = "수요일";
+  const char day4[] PROGMEM = "목요일";
+  const char day5[] PROGMEM = "금요일";
+  const char day6[] PROGMEM = "토요일";
+  const char* const daysOfWeek[] PROGMEM = { day0, day1, day2, day3, day4, day5, day6 };
   int dayOfWeek = dt.dayOfTheWeek();  // 0 = 일요일, 6 = 토요일
 
   // DateTime 객체를 시리얼로 출력하는 함수
@@ -649,7 +771,7 @@ void printDateTime(DateTime dt) {
   Serial.println(dt.second());
 }
 
-void printStringArray(String arr[], int size) {
+void printStringArray(const String arr[], const int size) {
   for (int i = 0; i < size; i++) {
     Serial.print(arr[i]);
     if (i < size - 1) {
@@ -658,7 +780,7 @@ void printStringArray(String arr[], int size) {
   }
   Serial.println();  // 배열 출력 후 줄 바꿈
 }
-void printIntArray(int arr[], int size) {
+void printIntArray(const int arr[], const int size) {
   for (int i = 0; i < size; i++) {
     Serial.print(arr[i]);
     if (i < size - 1) {
@@ -670,121 +792,171 @@ void printIntArray(int arr[], int size) {
 
 
 
-void adjust_by_UTCK(String rowStrData, int atIndex) {
-  Serial.println("First character is '@', proceeding with UTCK.");
+void adjustByJson(const JsonObject obj) {
+  Serial.println(F("proceeding with Client."));
+  /*
+  Serial.println(F("Debugging JSON Object..."));
+  serializeJson(obj, Serial);  // JsonObject 내용을 직렬화해서 출력
+  Serial.println();
+*/
+
+  // "datetime" 값 추출
+  const String& str = obj["datetime"].as<String>();
+  /*if (str.length() == 0) {
+    Serial.println(F("Error: 'datetime' value is empty!"));
+    return;
+  }*/
+
+  Serial.print(F("Extracted datetime: "));
+  Serial.println(str);
+
+  print_freeMemory(F("before parsing json"));
+
+  int newYear, newMonth, newDay, newHour, newMinute, newSecond;
+
+  // "datetime" 값 파싱
+  if (sscanf(str.c_str(), "%d-%d-%d %d:%d:%d", &newYear, &newMonth, &newDay, &newHour, &newMinute, &newSecond) == 6) {
+    DateTime adjustedTime(newYear, newMonth, newDay, newHour, newMinute, newSecond);
+    rtc.adjust(adjustedTime);
+
+    Serial.print(F("Adjusted by Client: "));
+    printDateTime(adjustedTime);  // 수정된 시간 출력
+  } else {
+    Serial.println(F("Data parsing failed!"));
+  }
+}
+
+void adjust_by_UTCK(const String& rowStrData, const int& atIndex) {
+  Serial.println(F("First character is '@', proceeding with UTCK."));
   if (rowStrData.length() >= 8) {
-    int newHour = rowStrData.substring(atIndex + 1, atIndex + 3).toInt();    // 시간
-    int newMinute = rowStrData.substring(atIndex + 3, atIndex + 5).toInt();  // 분
-    int newSecond = rowStrData.substring(atIndex + 5, atIndex + 7).toInt();  // 초
+    const int newHour = rowStrData.substring(atIndex + 1, atIndex + 3).toInt();    // 시간
+    const int newMinute = rowStrData.substring(atIndex + 3, atIndex + 5).toInt();  // 분
+    const int newSecond = rowStrData.substring(atIndex + 5, atIndex + 7).toInt();  // 초
 
     // 현재 날짜를 유지하고 시간만 변경
     DateTime now = rtc.now();
     DateTime adjustedTime(now.year(), now.month(), now.day(), newHour, newMinute, newSecond);
     rtc.adjust(adjustedTime);
 
-    Serial.print("Adjusted by UTCK3: ");
+    Serial.print(F("Adjusted by UTCK3: "));
     printDateTime(adjustedTime);  // 수정된 시간 출력
   } else {
-    Serial.println("Error: Input data is too short.");
+    Serial.println(F("Error: Input data is too short."));
   }
 }
 
-
-void ProcessingSerial() {
+void processingSerial() {
   if (Serial.available() > 0) {
-    String rowStrData = Serial.readStringUntil('\n');
-    Serial.println("Received Serial Data: " + rowStrData);
+    const String rowStrData = Serial.readStringUntil('\n');
+    //Serial.println(F("Received Serial Data: ") + rowStrData);
 
     // UTCK3 연동, 첫 문자가 '@'인지 확인
-    int atIndex = rowStrData.indexOf('@');
-    if (atIndex != -1) {
-      adjust_by_UTCK(rowStrData, atIndex);
+    int atIndexOf_UTCK3 = rowStrData.indexOf('@');
+    int atIndexOf_JSON = rowStrData.indexOf('{');
+    if (atIndexOf_UTCK3 != -1) {
+      adjust_by_UTCK(rowStrData, atIndexOf_UTCK3);
       //blinkWatchFace(rtc.now());
 
+    } else if (atIndexOf_JSON != -1) {
+      jsonSerialProcesser(rowStrData);
+
+
     } else {
-      Serial.println("Error: First character is not '@'.");
+      //Serial.println(F("Error: First character is unknown."));
+      lowSpeedSerial();
     }
   }
 }
 
-void refreshWatchFace(DateTime dt) {
+const char amStr[] PROGMEM = "오전";           // AM
+const char pmStr[] PROGMEM = "오후";           // PM
+const char midnightStr[] PROGMEM = "자정";     // Midnight
+const char noonStr[] PROGMEM = "정오";         // Noon
+const char hourTimeStr[] PROGMEM = "시_시각";   // Hour Time
+const char minuteTimeStr[] PROGMEM = "분_시각"; // Minute Time
+const char hourSuffixStr[] PROGMEM = "시_접미사"; // Hour Suffix
+const char minuteSuffixStr[] PROGMEM = "분_접미사"; // Minute Suffix
+
+
+void refreshWatchFace(const DateTime dt) {
   pixels.clear();
   int h = dt.hour();
   int m = dt.minute();
+
   if (h > 0 && h < 12) {  // 오전
-    pixels.setPixelColor(0, getColor("오전", dt));
-    pixels.setPixelColor(1, getColor("오전", dt));
-    pixels.setPixelColor(35, getColor("분_접미사", dt));
+    pixels.setPixelColor(0, getColor(amStr, dt));
+    pixels.setPixelColor(1, getColor(amStr, dt));
+    pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
   } else if (h > 12) {  // 오후
-    pixels.setPixelColor(0, getColor("오후", dt));
-    pixels.setPixelColor(6, getColor("오후", dt));
-    pixels.setPixelColor(35, getColor("분_접미사", dt));
+    pixels.setPixelColor(0, getColor(pmStr, dt));
+    pixels.setPixelColor(6, getColor(pmStr, dt));
+    pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
     h = h - 12;         // 시간: 오전, 오후 12시간제로 변환
   } else if (h == 0) {  // 자정
-    pixels.setPixelColor(18, getColor("자정", dt));
-    pixels.setPixelColor(24, getColor("자정", dt));
+    pixels.setPixelColor(18, getColor(midnightStr, dt));
+    pixels.setPixelColor(24, getColor(midnightStr, dt));
   } else if (h == 12) {  // 정오
-    pixels.setPixelColor(24, getColor("정오", dt));
-    pixels.setPixelColor(25, getColor("정오", dt));
+    pixels.setPixelColor(24, getColor(noonStr, dt));
+    pixels.setPixelColor(25, getColor(noonStr, dt));
   } else {
     pixels.clear();
   }
 
   switch (h) {  // 시간: 1부터 12까지
     case 1:
-      pixels.setPixelColor(3, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(3, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 2:
-      pixels.setPixelColor(4, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(4, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 3:
-      pixels.setPixelColor(5, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(5, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 4:
-      pixels.setPixelColor(11, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(11, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 5:
-      pixels.setPixelColor(12, getColor("시_시각", dt));
-      pixels.setPixelColor(13, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(12, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(13, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 6:
-      pixels.setPixelColor(7, getColor("시_시각", dt));
-      pixels.setPixelColor(13, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(7, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(13, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 7:
-      pixels.setPixelColor(8, getColor("시_시각", dt));
-      pixels.setPixelColor(14, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(8, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(14, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 8:
-      pixels.setPixelColor(9, getColor("시_시각", dt));
-      pixels.setPixelColor(10, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(9, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(10, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 9:
-      pixels.setPixelColor(15, getColor("시_시각", dt));
-      pixels.setPixelColor(16, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(15, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(16, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 10:
-      pixels.setPixelColor(2, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(2, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 11:
-      pixels.setPixelColor(2, getColor("시_시각", dt));
-      pixels.setPixelColor(3, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(2, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(3, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     case 12:
-      pixels.setPixelColor(2, getColor("시_시각", dt));
-      pixels.setPixelColor(4, getColor("시_시각", dt));
-      pixels.setPixelColor(17, getColor("시_접미사", dt));  //~시
+      pixels.setPixelColor(2, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(4, getColor(hourTimeStr, dt));
+      pixels.setPixelColor(17, getColor(hourSuffixStr, dt));  //~시
       break;
     default:
       break;
@@ -794,23 +966,23 @@ void refreshWatchFace(DateTime dt) {
   int m_tens = m / 10;  // 분: 십의 자리 1부터 5까지
   switch (m_tens) {
     case 1:
-      pixels.setPixelColor(23, getColor("분_시각", dt));
+      pixels.setPixelColor(23, getColor(minuteTimeStr, dt));
       break;
     case 2:
-      pixels.setPixelColor(19, getColor("분_시각", dt));
-      pixels.setPixelColor(23, getColor("분_시각", dt));
+      pixels.setPixelColor(19, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(23, getColor(minuteTimeStr, dt));
       break;
     case 3:
-      pixels.setPixelColor(20, getColor("분_시각", dt));
-      pixels.setPixelColor(23, getColor("분_시각", dt));
+      pixels.setPixelColor(20, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(23, getColor(minuteTimeStr, dt));
       break;
     case 4:
-      pixels.setPixelColor(21, getColor("분_시각", dt));
-      pixels.setPixelColor(23, getColor("분_시각", dt));
+      pixels.setPixelColor(21, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(23, getColor(minuteTimeStr, dt));
       break;
     case 5:
-      pixels.setPixelColor(22, getColor("분_시각", dt));
-      pixels.setPixelColor(23, getColor("분_시각", dt));
+      pixels.setPixelColor(22, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(23, getColor(minuteTimeStr, dt));
       break;
     default:
       pixels.setPixelColor(23, led_off);  //~십 아닐때
@@ -820,43 +992,43 @@ void refreshWatchFace(DateTime dt) {
   int m_ones = m % 10;  // 분: 일의 자리 1부터 9까지
   switch (m_ones) {
     case 1:
-      pixels.setPixelColor(26, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(26, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 2:
-      pixels.setPixelColor(27, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(27, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 3:
-      pixels.setPixelColor(28, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(28, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 4:
-      pixels.setPixelColor(29, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(29, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 5:
-      pixels.setPixelColor(30, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(30, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 6:
-      pixels.setPixelColor(31, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(31, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 7:
-      pixels.setPixelColor(32, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(32, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 8:
-      pixels.setPixelColor(33, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(33, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     case 9:
-      pixels.setPixelColor(34, getColor("분_시각", dt));
-      pixels.setPixelColor(35, getColor("분_접미사", dt));
+      pixels.setPixelColor(34, getColor(minuteTimeStr, dt));
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));
       break;
     default:
-      pixels.setPixelColor(35, getColor("분_접미사", dt));  //~분
+      pixels.setPixelColor(35, getColor(minuteSuffixStr, dt));  //~분
       break;
   }
 
@@ -871,7 +1043,8 @@ void refreshWatchFace(DateTime dt) {
 unsigned long processing_offset = 0;
 void setup() {
   Serial.begin(4800);
-  Serial.println("Clock Startup...");
+  Serial.println(F("\n\n"));
+  Serial.println(F("Clock Startup..."));
   rtc.begin();
   pixels.begin();
   pixels.show();  // 모든 LED를 꺼서 초기화
@@ -883,12 +1056,12 @@ void setup() {
   flowWatchFace();
 
   print_freeMemory();
-  Serial.println("Clock Booted!!!");
+  Serial.println(F("Clock Booted!!!"));
 }
 void loop() {
   delay(1);
   if (Serial.available() > 0) {
-    ProcessingSerial();
+    processingSerial();
   }
 
   DateTime now = rtc.now();
@@ -907,10 +1080,10 @@ void loop() {
     refreshWatchFace(now);
     processing_offset = millis() - start_processing_offset;
 
-    Serial.println("");
+    Serial.println();
     printDateTime(now);
     print_freeMemory();
-    Serial.print("processing_offset: ");
+    Serial.print(F("processing_offset: "));
     Serial.println(processing_offset);
   }
 }
