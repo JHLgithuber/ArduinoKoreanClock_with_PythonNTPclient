@@ -88,11 +88,18 @@ class ConnectionToClock:
         else:
             raise TypeError("입력값은 문자열이나 딕셔너리만 가능합니다.")
 
+        print(f"Sending command to Arduino: {command}")
         self.arduino.write(command.encode())  # 문자열을 바이트로 인코딩하여 전송
         time.sleep(0.1)  # 약간의 대기 시간
         if self.arduino.in_waiting > 0:  # 아두이노 응답 읽기
-            response = self.arduino.readline().decode('utf-8').strip()
-            print(f"Arduino response: {response}\n")
+            response = None
+            try:
+                response = self.arduino.readline().decode('utf-8', errors='replace').strip()
+            except UnicodeDecodeError:
+                response = "UnicodeDecodeError: Arduino response is not in UTF-8 format."
+            finally:
+                print(f"Arduino response: {response}\n")
+
             return response
         else:
             print("No response from Arduino.\n")
@@ -104,19 +111,26 @@ class ConnectionToClock:
 
     def change_baudrate(self, new_speed):
         """
-        보드레이트를 변경하고 시리얼 연결을 재설정합니다.
+        포트를 닫지 않고 보드레이트를 동적으로 변경
         """
         print(f"Changing baudrate from {self.speed} to {new_speed}...")
-        self.arduino.close()  # 기존 연결 닫기
-        self.speed = new_speed  # 보드레이트 업데이트
-        self.arduino = serial.Serial(port=self.port, baudrate=self.speed, timeout=1)  # 새 연결 설정
+
+        # 아두이노에 보드레이트 변경 요청
+        dict_for_json = {"function": "changeSpeedSerial", "speed": new_speed}
+        self.send_serial(dict_for_json)
+
+        # Python 측에서 보드레이트 변경
+        self.arduino.baudrate = new_speed
+        self.speed = new_speed
+        time.sleep(1)  # 안정화를 위한 지연 시간
         print(f"Baudrate changed to {self.speed}")
+
 
     def send_time(self, dt):
         remaining_microseconds = 1000000 - dt.microsecond
         delayed_time = dt + timedelta(microseconds=remaining_microseconds)
         formatted_dt = dt.strftime("%Y-%m-%d %H:%M:%S")
-        dict_for_json = {"function_str": "adjust_time", "datetime": formatted_dt}
+        dict_for_json = {"function": "adjust_time", "datetime": formatted_dt}
         time.sleep(remaining_microseconds / 1000000)
         return self.send_serial(dict_for_json)
 
@@ -275,6 +289,7 @@ if __name__ == "__main__":
     test_connection=ConnectionToClock()
     if not test_connection.waiting_boot("Clock Booted"):
         raise RuntimeError("Clock Boot Failed")
+    test_connection.change_baudrate(12500)
     while True:
         print(test_connection.send_now_time())
         time.sleep(1)

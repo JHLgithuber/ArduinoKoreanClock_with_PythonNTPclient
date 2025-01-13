@@ -704,7 +704,9 @@ void changeSpeedSerial(long speed) {
   Serial.print(F("newSpeed: "));
   Serial.println(speed);
   Serial.end();
+  delay(100);
   Serial.begin(speed);
+  delay(100);
 }
 
 void lowSpeedSerial() {
