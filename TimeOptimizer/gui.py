@@ -282,6 +282,7 @@ class KoreanClockGUI:
 
 
         # Submit Button
+        #TODO:취소버튼 만들어야 될듯
         submit_button = ttk.Button(add_preset_window, text="저장")
         submit_button.pack(side="bottom", ipadx=15, ipady=5, padx=5, pady=5)
 
@@ -328,6 +329,19 @@ class KoreanClockGUI:
             table.column(column, anchor="center", width=column_width)  # 컬럼 속성 설정
 
         # Treeview 및 스크롤바 배치
+        button_frame = ttk.Frame(self.list_preset_window)
+        edit_button = ttk.Button(button_frame, text="순위올림")
+        edit_button.pack(side="left", ipadx=2, ipady=3)
+        edit_button = ttk.Button(button_frame, text="순위내림")
+        edit_button.pack(side="left", ipadx=2, ipady=3)
+        edit_button = ttk.Button(button_frame, text="복사")
+        edit_button.pack(side="right", padx=3, ipadx=5, ipady=5)
+        edit_button = ttk.Button(button_frame, text="편집")
+        edit_button.pack(side="right", padx=3, ipadx=5, ipady=5)
+        delete_button = ttk.Button(button_frame,text="삭제", style="Critical.TButton")
+        delete_button.pack(side="right", padx=3, ipadx=5, ipady=5)
+        button_frame.pack(side="bottom", padx=5, pady=5, fill="x")
+
         xscrollbar.pack(side="bottom", fill="x")
         yscrollbar.pack(side="right", fill="y")
         table.pack(side="top", expand=True, fill="both")
@@ -344,6 +358,7 @@ class KoreanClockGUI:
         for row in dummy_data:
             values = [row.get(column, "") for column in all_columns]
             table.insert("", "end", values=values)
+
 
     def _open_list_ntp(self):
         self.list_ntp_window = tk.Toplevel(self.root)
