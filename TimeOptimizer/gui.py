@@ -71,13 +71,26 @@ class KoreanClockGUI:
         self.time_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
         self.ntp_sync_button = ttk.Button(self.time_frame, text="자동 시간 동기화", command=self._sync_ntp)
-        self.ntp_sync_button.pack(pady=10, ipadx=10, ipady=5)
+        self.ntp_sync_button.pack(pady=10, ipadx=10, ipady=5, fill="x")
 
-        self.ntp_sync_button = ttk.Button(self.time_frame, text="NTP 선택 동기화", command=self._sync_ntp)
-        self.ntp_sync_button.pack(pady=10, ipadx=10, ipady=5)
+        self.ntp_sync_button = ttk.Button(self.time_frame, text="NTP 동기화", command=self._open_list_ntp)
+        self.ntp_sync_button.pack(pady=10, ipadx=10, ipady=5, fill="x")
+
+        self.ntp_sync_button = ttk.Button(self.time_frame, text="PC 동기화", command=self._sync_ntp)
+        self.ntp_sync_button.pack(pady=10, ipadx=10, ipady=5, fill="x")
 
         self.manual_time_button = ttk.Button(self.time_frame, text="수동 시간 설정", command=self._open_manual_time_window)
-        self.manual_time_button.pack(pady=10, ipadx=10, ipady=5)
+        self.manual_time_button.pack(pady=10, ipadx=10, ipady=5, fill="x")
+
+        autosync_checkbox_val=tk.BooleanVar()
+        self.autosync_checkbox = ttk.Checkbutton(
+            self.time_frame,
+            text="주기적 자동 동기화",
+            style="TCheckbutton",
+            variable=autosync_checkbox_val,
+            command=lambda: self._run_autosync_thread(autosync_checkbox_val)
+        )
+        self.autosync_checkbox.pack(side="bottom", ipadx=10, ipady=3, padx=20, pady=7, fill="x")
 
         # 우하단: 색상 설정
         self.color_frame = ttk.LabelFrame(self.root, text="색상 설정", padding=(10, 10))
@@ -275,55 +288,97 @@ class KoreanClockGUI:
     def _open_list_preset_window(self, apply_position=True, title="프리셋 편집"):
         self.list_preset_window = tk.Toplevel(self.root)
         self.list_preset_window.title(title)
-        self.list_preset_window.geometry("500x200")
+        self.list_preset_window.geometry("800x300" if apply_position else "500x300")
         self.list_preset_window.resizable(True, True)
         self.list_preset_window.configure(bg="#D9D9D9")
 
         # 기본 컬럼 정의
         default_columns = ("priority", "color", "start_time", "end_time", "dayOfWeek")
-        table = ttk.Treeview(
-            self.list_preset_window, columns=default_columns, show="headings"
-        )
+        additional_columns = ("AM", "PM", "MID", "NOON", "H", "Hsuf", "M", "Msuf") if apply_position else ()
+        all_columns = default_columns + additional_columns
 
-        #TODO: 리스트 헤더 안나옴
+        # Treeview 생성
+        table = ttk.Treeview(self.list_preset_window, columns=all_columns, show="headings", selectmode="extended")
+        xscrollbar = ttk.Scrollbar(self.list_preset_window, orient=tk.HORIZONTAL, command=table.xview)
+        yscrollbar = ttk.Scrollbar(self.list_preset_window, orient=tk.VERTICAL, command=table.yview)
+        table.configure(xscrollcommand=xscrollbar.set, yscrollcommand=yscrollbar.set)  # 가로 스크롤 설정
 
         # 헤더 텍스트 설정
-        column_headers = {
-            "priority": "우선순위",
-            "color": "색상",
-            "start_time": "시작 시간",
-            "end_time": "종료 시간",
-            "dayOfWeek": "요일",
-            "AM": "오전",
-            "PM": "오후",
-            "MID": "자정",
-            "NOON": "정오",
-            "H": "시",
-            "Hsuf": "시_접미사",
-            "M": "분",
-            "Msuf": "분_접미사",
-            "delete_button": "삭제",
+        position_width=40
+        column_headers_dict = {
+            "priority": ("우선순위",60),
+            "color": ("색상",40),
+            "start_time": ("시작 시간",80),
+            "end_time": ("종료 시간",80),
+            "dayOfWeek": ("요일",100),
+            "AM": ("오전",position_width),
+            "PM": ("오후",position_width),
+            "MID": ("자정",position_width),
+            "NOON": ("정오",position_width),
+            "H": ("시",position_width),
+            "Hsuf": ("시_접미사",position_width),
+            "M": ("분",position_width),
+            "Msuf": ("분_접미사",position_width),
         }
 
-        # 기본 컬럼 설정
+        # 컬럼 및 헤더 설정
+        for column in all_columns:
+            (column_text,column_width)=column_headers_dict[column]
+            table.heading(column, text=column_text)  # 헤더 텍스트 설정
+            table.column(column, anchor="center", width=column_width)  # 컬럼 속성 설정
+
+        # Treeview 및 스크롤바 배치
+        xscrollbar.pack(side="bottom", fill="x")
+        yscrollbar.pack(side="right", fill="y")
+        table.pack(side="top", expand=True, fill="both")
+
+        dummy_data = [
+            {"priority": 1, "color": "Red", "start_time": "08:00", "end_time": "12:00", "dayOfWeek": "Monday",
+             "AM": "Yes", "PM": "No"},
+            {"priority": 2, "color": "Blue", "start_time": "12:00", "end_time": "16:00", "dayOfWeek": "Tuesday",
+             "AM": "No", "PM": "Yes"},
+            {"priority": 3, "color": "Green", "start_time": "16:00", "end_time": "20:00", "dayOfWeek": "Wednesday",
+             "AM": "Yes", "PM": "Yes"}
+        ]
+
+        for row in dummy_data:
+            values = [row.get(column, "") for column in all_columns]
+            table.insert("", "end", values=values)
+
+    def _open_list_ntp(self):
+        self.list_ntp_window = tk.Toplevel(self.root)
+        self.list_ntp_window.title("NTP 서버 선택")
+        self.list_ntp_window.geometry("500x300")
+        self.list_ntp_window.resizable(True, True)
+        self.list_ntp_window.configure(bg="#D9D9D9")
+
+        # 기본 컬럼 정의
+        default_columns = ("index", "name", "address")
+
+        # Treeview 생성
+        table = ttk.Treeview(self.list_ntp_window, columns=default_columns, show="headings")
+        xscrollbar = ttk.Scrollbar(self.list_ntp_window, orient=tk.HORIZONTAL, command=table.xview)
+        yscrollbar = ttk.Scrollbar(self.list_ntp_window, orient=tk.VERTICAL, command=table.yview)
+        table.configure(xscrollcommand=xscrollbar.set, yscrollcommand=yscrollbar.set)  # 가로 스크롤 설정
+
+        # 헤더 텍스트 설정
+        position_width = 40
+        column_headers_dict = {
+            "index": ("순번", 10),
+            "name": ("이름", 40),
+            "address": ("주소", 200),
+        }
+
+        # 컬럼 및 헤더 설정
         for column in default_columns:
-            table.heading(column, text=column_headers.get(column, column))
-            table.column(column, anchor="center", width=10)
+            (column_text, column_width) = column_headers_dict[column]
+            table.heading(column, text=column_text)  # 헤더 텍스트 설정
+            table.column(column, anchor="center", width=column_width)  # 컬럼 속성 설정
 
-        # 추가 컬럼 설정 (if apply_position=True)
-        if apply_position:
-            additional_columns = ("AM", "PM", "MID", "NOON", "H", "Hsuf", "M", "Msuf")
-            table["columns"] += additional_columns
-            for column in additional_columns:
-                table.heading(column, text=column_headers.get(column, column))
-                table.column(column, anchor="center", width=10)
-
-        # 삭제 버튼 추가
-        table["columns"] += ("delete_button",)
-        table.heading("delete_button", text=column_headers.get("delete_button", None))
-        table.column("delete_button", anchor="center", width=10)
-
-        table.pack(expand=True, fill="both")
+        # Treeview 및 스크롤바 배치
+        xscrollbar.pack(side="bottom", fill="x")
+        yscrollbar.pack(side="right", fill="y")
+        table.pack(side="top", expand=True, fill="both")
 
     def _open_manual_time_window(self):
         """수동 시간 설정 창을 엽니다."""
@@ -435,6 +490,10 @@ class KoreanClockGUI:
             messagebox.showinfo("프리셋 리셋", "프리셋이 초기화되었습니다.")
         else:
             messagebox.showerror("오류", "시리얼 포트가 연결되지 않았습니다.")
+
+    def _run_autosync_thread(self, autosync_checkbox_val):
+        pass
+
 
 # 단독 실행 시 GUI 테스트
 def main():
