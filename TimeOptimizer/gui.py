@@ -6,13 +6,15 @@ import json
 from tkcalendar import Calendar
 import datetime
 
+default_background= "#D9D9D9"
+
 class KoreanClockGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("한글 시계 조정 프로그램")
         self.root.geometry("800x800")
         self.root.resizable(True, True)
-        self.root.configure(bg="#D9D9D9")
+        self.root.configure(bg=default_background)
 
         self.serial_connection = None  # 시리얼 연결 객체
 
@@ -28,6 +30,23 @@ class KoreanClockGUI:
 
     def _create_widgets(self):
         """GUI 요소를 생성합니다."""
+        # 메뉴바 추가
+        self.menubar = tk.Menu(self.root, background=default_background)
+        self.root.config(menu=self.menubar)
+
+        file_menu = tk.Menu(self.menubar, tearoff=0)
+        file_menu.add_command(label="새로 만들기", command=lambda: print("새로 만들기 선택"))
+        file_menu.add_command(label="열기", command=lambda: print("열기 선택"))
+        file_menu.add_separator()
+        file_menu.add_command(label="종료", command=self.root.quit)
+
+        edit_menu = tk.Menu(self.menubar, tearoff=0)
+        edit_menu.add_command(label="복사", command=lambda: print("복사 선택"))
+        edit_menu.add_command(label="붙여넣기", command=lambda: print("붙여넣기 선택"))
+
+        self.menubar.add_cascade(label="파일", menu=file_menu)
+        self.menubar.add_cascade(label="편집", menu=edit_menu)
+
         # 그리드 레이아웃 설정
         self.root.columnconfigure(0, weight=1)
         self.root.columnconfigure(1, weight=1)
@@ -38,8 +57,14 @@ class KoreanClockGUI:
         self.current_time_frame = ttk.LabelFrame(self.root, text="현재 시간", padding=(10, 10))
         self.current_time_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
-        self.current_time_label = ttk.Label(self.current_time_frame, text="2025-01-13 15:30:00", font=("Arial", 12))
-        self.current_time_label.pack(padx=5, pady=5)
+        self.current_time_label = ttk.Label(self.current_time_frame, text="2025-01-13 15:30:00", font=("Arial", 15))
+        self.current_time_label.pack(side="top", pady=5)
+
+        self.current_text_text = tk.Text(self.current_time_frame, font=("Arial", 15), bg=default_background, height=5, width=10, wrap=tk.WORD, bd=0, fg="white", highlightthickness=0)
+        self.current_text_text.tag_configure("center", justify="center")
+        self.current_text_text.pack(side="top", expand=True, pady=5)
+
+        self.sync_time_display()
 
         # 우상단: 시리얼 포트 설정
         self.port_frame = ttk.LabelFrame(self.root, text="한글시계 연결 설정", padding=(10, 10))
@@ -114,13 +139,19 @@ class KoreanClockGUI:
         self.inner_time_preset_frame.pack()
 
         self.add_time_preset_button = ttk.Button(self.inner_time_preset_frame, text="프리셋 추가", command=lambda: self._open_add_preset_window(apply_position=False))
-        self.add_time_preset_button.grid(row=0, column = 0, columnspan = 2, sticky="EW", padx=3, pady=5, ipadx=5, ipady=5)
+        self.add_time_preset_button.grid(row=0, column = 0, rowspan = 2, sticky="NSEW", padx=3, pady=3, ipadx=5, ipady=5)
 
         self.edit_time_preset_button = ttk.Button(self.inner_time_preset_frame, text="프리셋 편집", command=lambda: self._open_list_preset_window(apply_position=False))
-        self.edit_time_preset_button.grid(row=1, column=0, sticky="EW", padx=3, pady=5, ipadx=5, ipady=5)
+        self.edit_time_preset_button.grid(row=0, column=1, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
 
         self.reset_time_preset_button = ttk.Button(self.inner_time_preset_frame, text="프리셋 리셋", command=self._reset_preset, style="Critical.TButton")
-        self.reset_time_preset_button.grid(row=1, column = 1, sticky="EW", padx=3, pady=5, ipadx=5, ipady=5)
+        self.reset_time_preset_button.grid(row=0, column = 2, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
+
+        self.edit_time_preset_button = ttk.Button(self.inner_time_preset_frame, text="PC에 저장")
+        self.edit_time_preset_button.grid(row=1, column=1, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
+
+        self.edit_time_preset_button = ttk.Button(self.inner_time_preset_frame, text="불러오기")
+        self.edit_time_preset_button.grid(row=1, column=2, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
 
 
 
@@ -131,19 +162,45 @@ class KoreanClockGUI:
         self.inner_cust_preset_frame.pack()
 
         self.add_cust_preset_button = ttk.Button(self.inner_cust_preset_frame, text="프리셋 추가", command=self._open_add_preset_window)
-        self.add_cust_preset_button.grid(row=0, column = 0, columnspan = 2, sticky="EW", padx=3, pady=5, ipadx=5, ipady=5)
+        self.add_cust_preset_button.grid(row=0, column = 0, rowspan = 2, sticky="NSEW", padx=3, pady=3, ipadx=5, ipady=5)
 
         self.edit_cust_preset_button = ttk.Button(self.inner_cust_preset_frame, text="프리셋 편집", command=self._open_list_preset_window)
-        self.edit_cust_preset_button.grid(row=1, column=0, sticky="EW", padx=3, pady=5, ipadx=5, ipady=5)
+        self.edit_cust_preset_button.grid(row=0, column=1, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
 
         self.reset_cust_preset_button = ttk.Button(self.inner_cust_preset_frame, text="프리셋 리셋", command=self._reset_preset, style="Critical.TButton")
-        self.reset_cust_preset_button.grid(row=1, column = 1, sticky="EW", padx=3, pady=5, ipadx=5, ipady=5)
+        self.reset_cust_preset_button.grid(row=0, column = 2, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
+
+        self.edit_cust_preset_button = ttk.Button(self.inner_cust_preset_frame, text="PC에 저장")
+        self.edit_cust_preset_button.grid(row=1, column=1, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
+
+        self.edit_cust_preset_button = ttk.Button(self.inner_cust_preset_frame, text="불러오기")
+        self.edit_cust_preset_button.grid(row=1, column=2, sticky="EW", padx=3, pady=3, ipadx=5, ipady=5)
 
         # 상태 출력
         self.status_label = tk.Label(
-            self.root, text="상태: 대기 중", font=("Arial", 10), fg="#555"
-        )
+            self.root, text="상태: 대기 중", font=("Arial", 10), fg="#555", bg=default_background)
         self.status_label.grid(row=2, column=0, columnspan=2, pady=10)
+
+    def sync_time_display(self):
+        def get_color(position):
+            #TODO:아두이노에서 색상얻는 로직, main코드로 옮겨야됨
+            return "white"
+
+        self.current_text_text.tag_configure("AM", foreground=get_color("AM"), justify="center")
+        self.current_text_text.tag_configure("PM", foreground=get_color("PM"), justify="center")
+        self.current_text_text.tag_configure("MID", foreground=get_color("MID"), justify="center")
+        self.current_text_text.tag_configure("NOON", foreground=get_color("NOON"), justify="center")
+        self.current_text_text.tag_configure("H", foreground=get_color("H"), justify="center")
+        self.current_text_text.tag_configure("Hsuf", foreground=get_color("Hsuf"), justify="center")
+        self.current_text_text.tag_configure("M", foreground=get_color("M"), justify="center")
+        self.current_text_text.tag_configure("Msuf", foreground=get_color("Msuf"), justify="center")
+
+        #TODO: 시간을 한글로 변환하는 로직
+        self.current_text_text.insert("end", "Red\n", "AM")
+        self.current_text_text.insert("end", "Blue\n", "PM")
+        self.current_text_text.insert("end", "Green\n", "MID")
+
+
 
     def _open_add_preset_window(self, apply_position=True, title="프리셋 추가"):
         SUN_val = tk.BooleanVar()
@@ -196,13 +253,13 @@ class KoreanClockGUI:
         """색상 프리셋 추가 창을 엽니다."""
         add_preset_window= tk.Toplevel(self.root)
         add_preset_window.title(title)
-        add_preset_window.geometry("500x250")
+        add_preset_window.geometry("530x250" if apply_position else "530x200")
         add_preset_window.resizable(False, False)
-        add_preset_window.configure(bg="#D9D9D9")
+        add_preset_window.configure(bg=default_background)
 
         # Frame for input fields
         add_preset_time_frame = ttk.LabelFrame(add_preset_window, text="적용 일시")
-        add_preset_time_frame.pack(fill="x", padx=5, pady=5, expand=True, side="top")
+        add_preset_time_frame.pack(fill="x", padx=5, pady=3, side="top")
         inner_add_preset_time_frame = ttk.Frame(add_preset_time_frame)
         inner_add_preset_time_frame.pack()
 
@@ -256,7 +313,7 @@ class KoreanClockGUI:
 
         if apply_position:
             add_preset_ledID_frame = ttk.LabelFrame(add_preset_window, text="적용 위치")
-            add_preset_ledID_frame.pack(fill="x", padx=5, pady=5, expand=True, side="top")
+            add_preset_ledID_frame.pack(fill="x", padx=5, pady=3, side="top")
             inner_preset_ledID_frame = ttk.Frame(add_preset_ledID_frame)
             inner_preset_ledID_frame.pack()
 
@@ -272,26 +329,29 @@ class KoreanClockGUI:
                 checkbox.grid(row=0, column=i, padx=3, pady=5)
 
         add_preset_color_frame = ttk.Frame(add_preset_window)
-        add_preset_color_frame.pack(side="top", padx=5, pady=5)
+        add_preset_color_frame.pack(side="top")
 
         color_preview_canvas = tk.Canvas(add_preset_color_frame, width=30, height=30, bg="white")
-        color_preview_canvas.grid(row=0, column=0, padx=10, pady=10)
+        color_preview_canvas.grid(row=0, column=0, padx=5, pady=10)
 
         choose_color_button = ttk.Button(add_preset_color_frame, text="색상 선택", command=self._choose_color)
-        choose_color_button.grid(row=0, column=1, pady=10, ipadx=10, ipady=5)
+        choose_color_button.grid(row=0, column=1, pady=5, ipadx=10, ipady=5)
 
+        add_preset_button_frame = ttk.Frame(add_preset_window)
+        add_preset_button_frame.pack(side="bottom", padx=5, pady=5)
 
-        # Submit Button
-        #TODO:취소버튼 만들어야 될듯
-        submit_button = ttk.Button(add_preset_window, text="저장")
-        submit_button.pack(side="bottom", ipadx=15, ipady=5, padx=5, pady=5)
+        submit_button = ttk.Button(add_preset_button_frame, text="취소", command=add_preset_window.destroy)
+        submit_button.pack(side="left", ipadx=15, ipady=5, padx=5, pady=5)
+
+        submit_button = ttk.Button(add_preset_button_frame, text="저장")
+        submit_button.pack(side="left", ipadx=15, ipady=5, padx=5, pady=5)
 
     def _open_list_preset_window(self, apply_position=True, title="프리셋 편집"):
         self.list_preset_window = tk.Toplevel(self.root)
         self.list_preset_window.title(title)
         self.list_preset_window.geometry("800x300" if apply_position else "500x300")
         self.list_preset_window.resizable(True, True)
-        self.list_preset_window.configure(bg="#D9D9D9")
+        self.list_preset_window.configure(bg=default_background)
 
         # 기본 컬럼 정의
         default_columns = ("priority", "color", "start_time", "end_time", "dayOfWeek")
@@ -365,7 +425,7 @@ class KoreanClockGUI:
         self.list_ntp_window.title("NTP 서버 선택")
         self.list_ntp_window.geometry("500x300")
         self.list_ntp_window.resizable(True, True)
-        self.list_ntp_window.configure(bg="#D9D9D9")
+        self.list_ntp_window.configure(bg=default_background)
 
         # 기본 컬럼 정의
         default_columns = ("index", "name", "address")
@@ -401,7 +461,7 @@ class KoreanClockGUI:
         self.manual_window.title("수동 시간 설정")
         self.manual_window.geometry("250x350")
         self.manual_window.resizable(False, False)
-        self.manual_window.configure(bg="#D9D9D9")
+        self.manual_window.configure(bg=default_background)
 
         # 캘린더 위젯
         self.calendar = Calendar(self.manual_window, selectmode='day', date_pattern='yyyy-mm-dd')
