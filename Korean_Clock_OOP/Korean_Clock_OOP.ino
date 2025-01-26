@@ -56,6 +56,19 @@ void print_freeMemory() {
   Serial.println(freeMemory());
 }
 
+void raiseException(String exception, String error) {
+  Serial.print(F("ERROR: "));
+  Serial.println(exception);
+  Serial.println(error);
+  for (int i; i < 100; i++) {
+    Serial.print(F("E"));
+  }
+  Serial.println("\n\n");
+}
+void raiseException(String exception, int error) {
+  raiseException(exception, String(error));
+}
+
 
 uint8_t get_IndexTime(DateTime dt) {
   // 총 몇 번째 10분 단위인지 계산
@@ -65,75 +78,162 @@ uint8_t get_IndexTime(DateTime dt) {
 
 class EEPROM_CURD {
   //빈공간: 0x00
-  //헤드 플래그: 0xAA 0xAA
+  //헤드 플래그: 0xAA 0xBB 0xCC 0xDD 0xEE
   //예비공간: 0xFF
 private:
   int headAddress = 0;
   struct Header_EEPROM {
     int head_ColorCustomPreset;
-    int count_ColorCustomPreset;
     int max_ColorCustomPreset;
     int head_ColorTimePreset;
-    int count_ColorTimePreset;
     int max_ColorTimePreset;
     int tailAddress;
+    DateTime initialDateTime;
+
+    bool onTimeNoti;
 
     RGBstruct defaultColor;
-    } header;
+  } header;
 
   //Header_EEPROM header;
   void setZero(int address) {
     EEPROM.update(address, 0x00);
   }
   void setFlag(int address) {
-    EEPROM.update(address, 0xAA);
-    EEPROM.update(address + 1, 0xAA);
+    EEPROM.update(address - 1, 0xAA);
+    EEPROM.update(address - 2, 0xBB);
+    EEPROM.update(address - 3, 0xCC);
+    EEPROM.update(address - 4, 0xDD);
+    EEPROM.update(address - 5, 0xEE);
   }
   void setBlank(int address) {
     EEPROM.update(address, 0xFF);
   }
 
   void findHead() {
-    for (int i = 0; i < EEPROM.length(); i++) {
-      if (EEPROM.read(i) == 0xAA && EEPROM.read(i + 1) == 0xAA) {
-        headAddress = i + 2;
+    for (int i = 5; i < EEPROM.length(); i++) {
+      if (EEPROM.read(i - 1) == 0xAA && EEPROM.read(i - 2) == 0xBB && EEPROM.read(i - 3) == 0xCC && EEPROM.read(i - 4) == 0xDD && EEPROM.read(i - 5) == 0xEE) {
+        headAddress = i;
         return;
       }
     }
     //헤더를 찾지 못했을 때
-    headAddress = 0;
+    headAddress = getRandomHeadAddress();
+    zeroFill();
     headerInitialization();
-    return;
   }
+  int getRandomHeadAddress() {
+    int rangeStart = 5;
+    int rangeEnd = max(rangeStart + 1, EEPROM.length() / 20);
+    if (rangeStart >= rangeEnd) {
+      rangeEnd = rangeStart + 1;  // 최소 범위 보정
+    }
+    return random(rangeStart, rangeEnd);
+  }
+
   void zeroFill() {
     for (int i = 0; i < EEPROM.length(); i++) {
       setZero(i);
     }
   }
   void zeroFill(int start, int end) {
-    if (start < 2) {
-      zeroFill(0, end);
-    } else {
-      for (int i = start - 2; i < end; i++) {
-        setZero(i);
-      }
+    start = max(0, start - 5);
+    end = min(EEPROM.length() - 1, end);
+    for (int i = start; i < end; i++) {
+      setZero(i);
     }
   }
+  void blankFill(int start, int end) {
+    start = max(0, start);
+    end = min(EEPROM.length() - 1, end);
+    for (int i = start; i < end; i++) {
+      setBlank(i);
+    }
+  }
+
   void headerInitialization() {
+    setFlag(headAddress);
+
     header.head_ColorCustomPreset = 0;
-    header.count_ColorCustomPreset = 0;
     header.max_ColorCustomPreset = 0;
     header.head_ColorTimePreset = 0;
-    header.count_ColorTimePreset = 0;
     header.max_ColorTimePreset = 0;
-    header.tailAddress = 0;
-    header.defaultColor={255,255,255};
+    header.tailAddress = sizeof(header);
+    header.defaultColor = { 255, 255, 255 };
+    header.initialDateTime = rtc.now();
+
+    //설정 기본값
+    header.onTimeNoti = true;
+    updateHeader();
+  }
+
+  int findStructAddress(int index, int type) {
+    if (!isAvailableIndex(index, type)) {
+      raiseException(__FUNCTION__, index);
+      return -1;
+    }
+
+    int address = 0;
+    if (type == 0) {
+      address = header.head_ColorCustomPreset + sizeof(ColorPresetStruct) * index;
+    } else if (type == 1) {
+      address = header.head_ColorTimePreset + sizeof(ColorPresetStruct) * index;
+    } else {
+      raiseException(__FUNCTION__, type);
+      return -1;
+    }
+
+    if (address < 0 || (address + (int)sizeof(ColorPresetStruct)) > EEPROM.length()) {
+      raiseException(__FUNCTION__, "Out of bounds");
+      return -1;
+    }
+
+    return address;
+  }
+  int findBlankStructAddress(int type) {
+    for (int i = 0; i < getMaxStruct(type); i++) {
+      if (isBlankStruct(i, type)) {
+        return findStructAddress(i, type);
+      }
+    }
+    raiseException(__FUNCTION__, String(type) + "FULL");
+    return -1;
   }
 
 
+  bool isBlankStruct(int index, int type) {
+    int address = findStructAddress(index, type);
+    int size = sizeof(ColorPresetStruct);
+    for (int i = address; i < address + size; i++) {
+      if (EEPROM.read(i) != 0xFF) {
+        return false;
+      }
+    }
+    return true;
+  }
 
+  bool isAvailableIndex(int index, int type) {
+    if (type == 0 && index < header.max_ColorCustomPreset) {
+      return true;
+    } else if (type == 1 && index < header.max_ColorTimePreset) {
+      return true;
+    } else {
+      return false;
+    }
+  }
 
-
+  int getMaxStruct(int type) {
+    int max = 0;
+    if (type == 0) {
+      max = header.max_ColorCustomPreset;
+    } else if (type == 1) {
+      max = header.max_ColorTimePreset;
+    } else {
+      raiseException(__FUNCTION__, type);
+      return -1;
+    }
+    return max;
+  }
 
 
 public:
@@ -148,52 +248,105 @@ public:
   void newWrite(int max_ColorCustomPreset, int max_ColorTimePreset) {
     zeroFill(headAddress, header.tailAddress);
     headAddress = header.tailAddress;
+    newWrite(max_ColorCustomPreset, max_ColorTimePreset, headAddress);
+  }
+  void newWrite(int max_ColorCustomPreset, int max_ColorTimePreset, int customHeadAddress) {
+    if (customHeadAddress >= EEPROM.length() || customHeadAddress < 5) {
+      customHeadAddress = getRandomHeadAddress();
+    }
+
 
     headerInitialization();
-    header.head_ColorCustomPreset = headAddress + sizeof(header);
+    header.head_ColorCustomPreset = customHeadAddress + sizeof(header);
     header.max_ColorCustomPreset = max_ColorCustomPreset;
     header.head_ColorTimePreset = header.head_ColorCustomPreset + sizeof(ColorPresetStruct) * max_ColorCustomPreset;
     header.max_ColorTimePreset = max_ColorTimePreset;
     header.tailAddress = header.head_ColorTimePreset + sizeof(ColorPresetStruct) * max_ColorTimePreset;
+
+    if (header.tailAddress - customHeadAddress > EEPROM.length() - 5) {  //EEPROM 사이즈 초과여부 검사
+      raiseException(__FUNCTION__, "Oversize Header" + String(header.tailAddress - customHeadAddress - EEPROM.length()));
+      return;
+    }
+
+    if (header.tailAddress > EEPROM.length()) {  //EEPROM 성능절약을 위한 순회
+      headAddress = getRandomHeadAddress();
+      return;
+    } else {
+      headAddress = customHeadAddress;
+      blankFill(headAddress, header.tailAddress);
+      updateHeader();
+    }
   }
-  Header_EEPROM getHeader() {
+
+
+  void getHeader() {
     EEPROM.get(headAddress, header);
-    return header;
+
+    //헤더에 저장된 설정 적용
+    hourlyNotificationSet = header.onTimeNoti;
   }
   void updateHeader() {  //헤더 쓰기
     EEPROM.put(headAddress, header);
   }
+
+
+  //index: 0부터 시작
   bool putStruct(ColorPresetStruct data, int type) {
-    int address = 0;
-    if (type == 0) {
-      address = header.head_ColorCustomPreset + sizeof(ColorPresetStruct) * header.count_ColorCustomPreset;
-      EEPROM.put(address, data);
-      header.count_ColorCustomPreset += 1;
-    } else if (type == 1) {
-      address = header.head_ColorTimePreset + sizeof(ColorPresetStruct) * header.count_ColorTimePreset;
-      EEPROM.put(address, data);
-      header.count_ColorTimePreset += 1;
-    } else {
+    if (data.priority >= 0xFF) {
+      raiseException(__FUNCTION__, data.priority);
       return false;
     }
+    int address = findBlankStructAddress(type);
+    if (address == -1) {
+      raiseException(__FUNCTION__, String(type) + "FULL");
+      return false;
+    }
+    EEPROM.put(address, data);
+    return true;
+  }
+  bool updateStruct(int index, ColorPresetStruct data, int type) {
+    if (data.priority >= 0xFF) {
+      raiseException(__FUNCTION__, data.priority);
+      return false;
+    }
+    int address = findStructAddress(index, type);
+    EEPROM.put(address, data);
     return true;
   }
   ColorPresetStruct getStruct(int index, int type) {
-    int address = 0;
     ColorPresetStruct data = ColorPresetStruct{};
-    if (type == 0) {
-      address = header.head_ColorCustomPreset + sizeof(ColorPresetStruct) * index;
-    } else if (type == 1) {
-      address = header.head_ColorTimePreset + sizeof(ColorPresetStruct) * index;
-    } else {
-      return ColorPresetStruct{};
+    if (isBlankStruct(index, type)) {
+      return data;
     }
-
+    int address = findStructAddress(index, type);
+    if (address == -1) {
+      raiseException(__FUNCTION__, index);
+      return data;
+    }
     EEPROM.get(address, data);
     return data;
   }
-  void flush() {
+  bool deleteStruct(int index, int type) {
+    int address = findStructAddress(index, type);
+    if (address == -1) {
+      raiseException(__FUNCTION__, index);
+      return false;
+    }
+    int size = sizeof(ColorPresetStruct);
+    blankFill(address, size);
+    return true;
+  }
+  void formatEEPROM() {
     zeroFill();
+  }
+  int getCountBlankStructs(int type) {
+    int blankCount = 0;
+    for (int i = 0; i < getMaxStruct(type); i++) {
+      if (isBlankStruct(i, type)) {
+        blankCount++;
+      }
+    }
+    return blankCount;
   }
 };
 EEPROM_CURD eeprom_curd();
@@ -703,9 +856,11 @@ void changeSpeedSerial(long speed) {
   // 새로운 속도 설정
   Serial.print(F("newSpeed: "));
   Serial.println(speed);
+  Serial.flush();
   Serial.end();
   delay(100);
   Serial.begin(speed);
+  Serial.print(F("newSerialOpen"));
   delay(100);
 }
 
@@ -749,7 +904,7 @@ void jsonSerialProcesser(const String data) {
     return;
   }
 
-//메모리 절약 필요
+  //메모리 절약 필요
   if (obj[F("function")] == F("adjust_time")) {  //시간 조정
     adjustByJson(obj);
   } else if (obj[F("function")] == F("changeSpeedSerial")) {  //시리얼 속도변경
@@ -1132,9 +1287,11 @@ void setup() {
   Serial.begin(4800);
   Serial.println(F("\n\n"));
   Serial.println(F("Clock Startup..."));
+  randomSeed(analogRead(A0));
   rtc.begin();
   pixels.begin();
   pixels.show();  // 모든 LED를 꺼서 초기화
+
 
 
   colorCustomPreset.reset_colorPresetArr();  //프리셋 리셋, 삭제필요

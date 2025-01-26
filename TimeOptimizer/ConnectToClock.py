@@ -2,7 +2,7 @@ import serial
 import serial.tools.list_ports
 import time
 from dataclasses import dataclass
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 import subprocess
 import os
 import platform
@@ -12,6 +12,7 @@ import urllib.request
 import re
 import json
 from json import JSONDecodeError
+
 
 @dataclass
 class RGBStruct:
@@ -40,6 +41,7 @@ def find_arduino_port():
             return port.device
     raise RuntimeError("Arduino not found. Please connect the Arduino.")
 
+
 class ConnectionToClock:
     """
     아두이노와의 연결을 설정하고 명령을 주고받는 클래스
@@ -62,13 +64,12 @@ class ConnectionToClock:
             print(f"Waiting for {boot_str}...")
             while datetime.now() - start_time < timedelta(seconds=maxWait):
                 if self.arduino.in_waiting > 0:
-                    data=self.arduino.readline().decode('utf-8').strip()
+                    data = self.arduino.readline().decode('utf-8').strip()
                     print(data)
                     if boot_str in data:
                         print(f"{boot_str} received.")
                         time.sleep(3)
                         return True
-
 
             print(f"Waiting for {boot_str} timed out.")
             return False
@@ -77,7 +78,6 @@ class ConnectionToClock:
             print(f"Serial communication error: {e}")
         except Exception as e:
             print(f"Error: {e}")
-
 
     def send_serial(self, param):
         """아두이노에 명령 전송"""
@@ -88,21 +88,58 @@ class ConnectionToClock:
         else:
             raise TypeError("입력값은 문자열이나 딕셔너리만 가능합니다.")
 
+        self.arduino.reset_input_buffer()
         print(f"Sending command to Arduino: {command}")
-        self.arduino.write(command.encode())  # 문자열을 바이트로 인코딩하여 전송
-        time.sleep(0.1)  # 약간의 대기 시간
-        if self.arduino.in_waiting > 0:  # 아두이노 응답 읽기
-            response = None
-            try:
-                response = self.arduino.readline().decode('utf-8', errors='replace').strip()
-            except UnicodeDecodeError:
-                response = "UnicodeDecodeError: Arduino response is not in UTF-8 format."
-            finally:
-                print(f"Arduino response: {response}\n")
+        self.arduino.write(command.encode())  # 명령 전송
+        self.arduino.flush()
 
-            return response
-        else:
-            print("No response from Arduino.\n")
+        # 데이터 도착을 기다림 (최대 ?초 대기)
+        start_time = time.time()
+        response_time = 0
+        while self.arduino.in_waiting == 0:
+            response_time = time.time() - start_time
+            if response_time > 2:  # 타임아웃 설정
+                print("No response from Arduino.\n")
+                return None
+
+        serial_bytes = bytearray()  # 수신된 바이트를 임시 저장할 버퍼
+        start_read_time = time.time()
+
+        quiet_time = max(0.0015, 150 / self.speed)  # 이 시간 이상 새 데이터가 없으면 종료
+        total_time = min(3.5, 20000 / self.speed)  # 전체 수신 시도 최대 대기 시간
+        last_data_time = time.time()
+
+        while True:
+            waiting = self.arduino.in_waiting
+            if waiting > 0:
+                # waiting만큼 데이터를 읽어와 버퍼에 저장
+                serial_bytes.extend(self.arduino.read(waiting))
+                # 마지막으로 데이터를 읽은 시점을 갱신
+                last_data_time = time.time()
+                print(f"[DEBUG] 현재까지 수신된 바이트 크기: {len(serial_bytes)}")
+
+            # quiet_time 동안 새로운 데이터가 없었다면 더 이상 들어올 데이터가 없다고 판단
+            if (time.time() - last_data_time) > quiet_time:
+                print(f"[DEBUG] 수신완료 후 바이트 크기: {len(serial_bytes)}")
+                break
+
+            # 혹은 total_time을 초과하면 종료
+            if (time.time() - start_read_time) > total_time:
+                print(f"[DEBUG] 타임아웃 후 바이트 크기: {len(serial_bytes)}")
+                break
+
+        # 수신된 바이트 수 확인
+        print(f"Read {len(serial_bytes)} bytes of response.")
+        print(f"Read time: {last_data_time + quiet_time - start_read_time}\tQuiet time limit: {quiet_time}\tTotal time limit: {total_time}")
+
+        # 버퍼를 UTF-8로 디코딩하고, 줄 단위로 파싱
+        decoded_responses = serial_bytes.decode('utf-8', errors='replace').strip()
+        responses = decoded_responses.split('\r\n')
+        print("Arduino responses:")
+        for r in responses:
+            print(r)
+        print("<Arduino responses END>")
+        return responses
 
     def close_serial(self):
         """시리얼 포트 닫기"""
@@ -125,7 +162,6 @@ class ConnectionToClock:
         time.sleep(1)  # 안정화를 위한 지연 시간
         print(f"Baudrate changed to {self.speed}")
 
-
     def send_time(self, dt):
         remaining_microseconds = 1000000 - dt.microsecond
         delayed_time = dt + timedelta(microseconds=remaining_microseconds)
@@ -138,13 +174,11 @@ class ConnectionToClock:
         return self.send_time(datetime.now())
 
 
-
 class ArduinoCLI:
     def __init__(self, port=None):
         self.cli_path = self._check_and_install_cli()
         self.port = port or find_arduino_port()
         self.fqbn = self.get_fqbn(self.port)
-
 
     def _check_and_install_cli(self):
         """Check if Arduino CLI is installed, and install it if not"""
@@ -214,7 +248,6 @@ class ArduinoCLI:
         except FileNotFoundError:
             raise RuntimeError(f"Sketch file not found: {sketch_path}")
 
-
     def get_fqbn(self, port):
         """Automatically get the FQBN for the board connected to the specified port"""
         print("Detecting board FQBN...")
@@ -240,7 +273,6 @@ class ArduinoCLI:
             raise RuntimeError("Failed to parse board list output.")
 
         raise RuntimeError(f"No board detected on port {port}. Please check the connection.")
-
 
     def install_libraries_and_upload(self, sketch_path):
         """Install required libraries and upload the sketch to the Arduino board"""
@@ -283,14 +315,13 @@ def run_command(command):
 
 
 if __name__ == "__main__":
-    ArduinoCLI().install_libraries_and_upload("../Korean_Clock_OOP/Korean_Clock_OOP.ino")
+    #ArduinoCLI().install_libraries_and_upload("../Korean_Clock_OOP/Korean_Clock_OOP.ino")
 
     print(datetime)
-    test_connection=ConnectionToClock()
+    test_connection = ConnectionToClock()
     if not test_connection.waiting_boot("Clock Booted"):
         raise RuntimeError("Clock Boot Failed")
-    test_connection.change_baudrate(12500)
+    test_connection.change_baudrate(100000)
     while True:
         print(test_connection.send_now_time())
-        time.sleep(1)
-
+        time.sleep(5)
